@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 
 @dataclass(frozen=True)
@@ -15,26 +15,39 @@ class Prompt:
 
 class AIClient(Protocol):
     def generate_json(self, prompt: Prompt) -> dict[str, Any]: ...
+    def generate_json_stream(self, prompt: Prompt) -> Iterator[str]: ...
 
 
 class FakeAIClient:
-    """Test double. Queue responses with queue_response(); each call to
-    generate_json pops one, in order. Raises AssertionError if the queue
+    """Test double. Queue non-streaming responses with queue_response() and
+    streaming ones with queue_stream(); each call pops the next one, in
+    order, for its own method. Raises AssertionError if the relevant queue
     runs dry, so an under-specified test fails loudly instead of hanging.
     """
 
     def __init__(self) -> None:
         self._queue: list[dict[str, Any]] = []
+        self._stream_queue: list[list[str]] = []
         self.calls: list[Prompt] = []
+        self.stream_calls: list[Prompt] = []
 
     def queue_response(self, response: dict[str, Any]) -> None:
         self._queue.append(response)
+
+    def queue_stream(self, chunks: list[str]) -> None:
+        self._stream_queue.append(chunks)
 
     def generate_json(self, prompt: Prompt) -> dict[str, Any]:
         self.calls.append(prompt)
         if not self._queue:
             raise AssertionError("FakeAIClient: no queued response left")
         return self._queue.pop(0)
+
+    def generate_json_stream(self, prompt: Prompt) -> Iterator[str]:
+        self.stream_calls.append(prompt)
+        if not self._stream_queue:
+            raise AssertionError("FakeAIClient: no queued stream left")
+        return iter(self._stream_queue.pop(0))
 
 
 _client: AIClient | None = None

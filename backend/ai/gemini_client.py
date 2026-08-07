@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Iterator
 
 from google import genai
 from google.genai import errors, types
@@ -58,3 +59,30 @@ class GeminiClient:
             return json.loads(text)
         except json.JSONDecodeError as exc:
             raise AIInvalidResponse(f"Gemini returned invalid JSON: {exc}") from exc
+
+    def generate_json_stream(self, prompt: Prompt) -> Iterator[str]:
+        def call():
+            return self._client.models.generate_content_stream(
+                model=settings.GEMINI_MODEL,
+                contents=prompt.user_content,
+                config=types.GenerateContentConfig(
+                    system_instruction=prompt.system_instruction,
+                    response_mime_type="application/json",
+                    response_schema=prompt.response_schema,
+                    temperature=prompt.temperature,
+                    max_output_tokens=prompt.max_output_tokens,
+                    # Thinking stays enabled here, unlike generate_json — the
+                    # spec calls for it on roadmap generation specifically,
+                    # since it's a much harder generation task than a single
+                    # assessment-grading extraction.
+                ),
+            )
+
+        try:
+            stream = call_with_retries(call, is_retryable=_is_retryable)
+            for chunk in stream:
+                if chunk.text:
+                    yield chunk.text
+        except errors.APIError as exc:
+            log.warning("Gemini streaming error: %s", exc)
+            raise AIUnavailable(str(exc)) from exc

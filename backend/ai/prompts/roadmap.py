@@ -23,7 +23,6 @@ _MODULE_SCHEMA = {
                 "title": {"type": "STRING"},
                 "description": {"type": "STRING"},
             },
-            "required": ["title", "description"],
             "nullable": True,
         },
         "estimated_hours": {"type": "INTEGER"},
