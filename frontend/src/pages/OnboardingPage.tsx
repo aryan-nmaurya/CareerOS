@@ -36,7 +36,7 @@ export default function OnboardingPage() {
     try {
       const track = await createTrack.mutateAsync({ topic, experienceLevel: level });
       if (level === "beginner") {
-        navigate("/", { replace: true });
+        navigate("/roadmap", { replace: true });
         return;
       }
       const assessment = await startAssessment.mutateAsync(track.id);

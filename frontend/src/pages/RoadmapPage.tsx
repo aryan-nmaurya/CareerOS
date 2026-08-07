@@ -15,7 +15,7 @@ import { useRoadmapStream } from "@/hooks/useRoadmapStream";
 import { ApiError } from "@/services/api/client";
 
 export default function RoadmapPage() {
-  const { data: track } = useActiveTrack();
+  const { data: track, isPending: trackPending } = useActiveTrack();
   const trackId = track?.id ?? null;
   const roadmapQuery = useRoadmap(trackId);
   const stream = useRoadmapStream();
@@ -37,6 +37,16 @@ export default function RoadmapPage() {
       queryClient.invalidateQueries({ queryKey: roadmapKey(trackId) });
     }
   }, [stream.state.status, trackId, queryClient]);
+
+  if (trackPending) {
+    return (
+      <AppShell>
+        <div className="grid place-items-center py-24">
+          <Loader2 className="size-6 animate-spin text-text-muted" />
+        </div>
+      </AppShell>
+    );
+  }
 
   if (!track) {
     return (

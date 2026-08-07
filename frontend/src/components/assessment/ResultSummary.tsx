@@ -1,5 +1,6 @@
-import { Award, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, Award, TrendingDown, TrendingUp } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 import type { Assessment } from "@/types";
@@ -10,7 +11,13 @@ const LEVEL_LABEL: Record<string, string> = {
   advanced: "Advanced",
 };
 
-export function ResultSummary({ assessment }: { assessment: Assessment }) {
+export function ResultSummary({
+  assessment,
+  onContinue,
+}: {
+  assessment: Assessment;
+  onContinue?: () => void;
+}) {
   return (
     <div className="space-y-6">
       <Card className="space-y-4">
@@ -33,6 +40,12 @@ export function ResultSummary({ assessment }: { assessment: Assessment }) {
           <p className="text-sm text-text-secondary">{assessment.summary}</p>
         )}
       </Card>
+
+      {onContinue && (
+        <Button onClick={onContinue} className="w-full sm:w-auto">
+          Continue to your roadmap <ArrowRight className="size-4" />
+        </Button>
+      )}
 
       {(assessment.strengths.length > 0 || assessment.weaknesses.length > 0) && (
         <div className="grid gap-4 sm:grid-cols-2">

@@ -3348,3 +3348,263 @@ git commit -m "feat(frontend): add roadmap timeline viewer with live-streaming g
 ```
 
 ---
+
+## Task 11: Dashboard page, onboarding wiring, and full E2E verification
+
+**Files:**
+- Modify: `frontend/src/pages/DashboardPage.tsx` (real data instead of the placeholder)
+- Modify: `frontend/src/pages/OnboardingPage.tsx` (Beginner lands on `/roadmap`, not `/`)
+- Modify: `frontend/src/components/assessment/ResultSummary.tsx` (+ `onContinue` CTA)
+- Modify: `frontend/src/pages/AssessmentPage.tsx` (wire `onContinue` to navigate to `/roadmap`)
+- Modify: `frontend/src/pages/RoadmapPage.tsx` (small refinement — see Step 4)
+
+This closes the loop the whole plan has been building toward: both onboarding
+paths (Beginner direct, Intermediate/Advanced via assessment) now land on a
+real, generating-or-generated roadmap, and the dashboard shows what actually
+exists instead of a "coming later" placeholder.
+
+- [ ] **Step 1: Rewrite `frontend/src/pages/DashboardPage.tsx`**
+
+```tsx
+import { Loader2, Plus } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+
+import { AppShell } from "@/components/layout/AppShell";
+import { TopBar } from "@/components/layout/TopBar";
+import { ProgressRing } from "@/components/roadmap/ProgressRing";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { useDashboard } from "@/hooks/useDashboard";
+
+export default function DashboardPage() {
+  const { data: dashboard, isPending } = useDashboard();
+  const navigate = useNavigate();
+
+  if (isPending || !dashboard) {
+    return (
+      <AppShell>
+        <div className="grid place-items-center py-24">
+          <Loader2 className="size-6 animate-spin text-text-muted" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  const { profile, active_track: track, next_module: nextModule } = dashboard;
+
+  return (
+    <AppShell>
+      <TopBar
+        title={`Welcome back, ${profile?.name ?? "there"}`}
+        subtitle={
+          track
+            ? `You're learning ${track.topic} at ${track.experience_level} level.`
+            : "Pick something to learn to get started."
+        }
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardTitle>Current track</CardTitle>
+          <CardDescription className="mt-1">
+            {track ? track.topic : "No active track yet."}
+          </CardDescription>
+          <Link to="/onboarding" className="mt-4 inline-block">
+            <Button variant="secondary" size="sm">
+              <Plus className="size-4" /> New track
+            </Button>
+          </Link>
+        </Card>
+
+        <Card>
+          <CardTitle>Roadmap</CardTitle>
+          {dashboard.roadmap_summary ? (
+            <>
+              <CardDescription className="mt-1">{dashboard.roadmap_summary}</CardDescription>
+              {dashboard.current_phase && (
+                <p className="mt-2 text-xs font-medium text-accent">
+                  Currently on: {dashboard.current_phase}
+                </p>
+              )}
+            </>
+          ) : (
+            <CardDescription className="mt-1">
+              {track ? "Not generated yet." : "Start a track to get one."}
+            </CardDescription>
+          )}
+          {track && (
+            <Button size="sm" className="mt-4" onClick={() => navigate("/roadmap")}>
+              {dashboard.roadmap_summary ? "View roadmap" : "Generate roadmap"}
+            </Button>
+          )}
+        </Card>
+      </div>
+
+      {dashboard.roadmap_summary && (
+        <div className="mt-4 grid gap-4 sm:grid-cols-[auto_1fr]">
+          <Card className="flex items-center justify-center">
+            <ProgressRing percent={dashboard.completion_pct} label="complete" />
+          </Card>
+
+          <Card className="flex flex-col justify-center gap-1">
+            <p className="text-sm text-text-primary">
+              {dashboard.completed_modules} of{" "}
+              {dashboard.completed_modules + dashboard.remaining_modules} modules done
+            </p>
+            {nextModule ? (
+              <>
+                <p className="text-xs text-text-secondary">Next up: {nextModule.title}</p>
+                <Button
+                  size="sm"
+                  className="mt-2 self-start"
+                  onClick={() => navigate("/roadmap")}
+                >
+                  Continue learning
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-success">Roadmap complete — nice work.</p>
+            )}
+          </Card>
+        </div>
+      )}
+
+      <Card className="mt-4">
+        <CardTitle>Recent interviews</CardTitle>
+        <CardDescription className="mt-1">
+          {dashboard.recent_interviews.length === 0
+            ? "No interviews yet."
+            : `${dashboard.recent_interviews.length} completed.`}
+        </CardDescription>
+      </Card>
+    </AppShell>
+  );
+}
+```
+
+- [ ] **Step 2: Wire Beginner onboarding to `/roadmap`**
+
+In `frontend/src/pages/OnboardingPage.tsx`, in `handleLevel`, change:
+
+```tsx
+if (level === "beginner") {
+  navigate("/", { replace: true });
+  return;
+}
+```
+
+to:
+
+```tsx
+if (level === "beginner") {
+  navigate("/roadmap", { replace: true });
+  return;
+}
+```
+
+- [ ] **Step 3: Add a continue CTA to the assessment result, wire it to `/roadmap`**
+
+In `frontend/src/components/assessment/ResultSummary.tsx`, add the import
+`import { ArrowRight } from "lucide-react";` and
+`import { Button } from "@/components/ui/button";`, change the function
+signature to accept an optional callback, and render a CTA right after the
+score card:
+
+```tsx
+export function ResultSummary({
+  assessment,
+  onContinue,
+}: {
+  assessment: Assessment;
+  onContinue?: () => void;
+}) {
+  return (
+    <div className="space-y-6">
+      <Card className="space-y-4">
+        {/* ...unchanged... */}
+      </Card>
+
+      {onContinue && (
+        <Button onClick={onContinue} className="w-full sm:w-auto">
+          Continue to your roadmap <ArrowRight className="size-4" />
+        </Button>
+      )}
+
+      {/* ...strengths/weaknesses and question breakdown, unchanged... */}
+```
+
+In `frontend/src/pages/AssessmentPage.tsx`, import `useNavigate` alongside
+the existing `useParams` import, add `const navigate = useNavigate();`, and
+pass the callback:
+
+```tsx
+<ResultSummary assessment={assessment} onContinue={() => navigate("/roadmap")} />
+```
+
+- [ ] **Step 4: Small refinement to `frontend/src/pages/RoadmapPage.tsx`**
+
+`useActiveTrack()` can be genuinely loading (right after onboarding
+`invalidateQueries`s the tracks query) rather than genuinely empty. Without
+distinguishing the two, the page would flash "Pick a track from the
+dashboard first" for a moment on every arrival from onboarding. Destructure
+`isPending` too and check it first:
+
+```tsx
+const { data: track, isPending: trackPending } = useActiveTrack();
+```
+
+Add a new early return right after the existing hooks, before the `!track`
+check:
+
+```tsx
+if (trackPending) {
+  return (
+    <AppShell>
+      <div className="grid place-items-center py-24">
+        <Loader2 className="size-6 animate-spin text-text-muted" />
+      </div>
+    </AppShell>
+  );
+}
+```
+
+- [ ] **Step 5: Typecheck, build, test**
+
+Run: `cd frontend && npx tsc -b --noEmit && npm run build && npm test`
+Expected: all clean.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/src/pages/DashboardPage.tsx frontend/src/pages/OnboardingPage.tsx frontend/src/components/assessment/ResultSummary.tsx frontend/src/pages/AssessmentPage.tsx frontend/src/pages/RoadmapPage.tsx
+git commit -m "feat(frontend): wire onboarding and assessment completion into roadmap generation"
+```
+
+- [ ] **Step 7: Full live E2E browser verification**
+
+Start both servers and walk through, in a real browser, exactly like Plan
+2's Task 10:
+
+1. Beginner path: onboard with a fresh profile/track at Beginner level →
+   confirm landing on `/roadmap` and the generating view appears.
+2. Intermediate/Advanced path: onboard at Intermediate → complete the
+   assessment → submit → click "Continue to your roadmap" → confirm landing
+   on `/roadmap` with the generating view.
+3. Dashboard: confirm it reflects real profile/track state at each stage.
+4. Once a roadmap exists (from either path, once Gemini quota allows —
+   see the note below), toggle a module's checkbox on `/roadmap` and confirm
+   the phase/overall progress bars and the dashboard's progress ring update.
+
+**Known blocker at verification time:** the Gemini free-tier quota
+(`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20) has been
+exhausted since Task 5's live smoke test. Steps 1-3 above are fully
+verifiable right now — onboarding navigation, track creation, the SSE
+connection opening, and (critically) the frontend's error-handling path,
+since a quota-exhausted generation call surfaces as a real `AIUnavailable` →
+an `event: error` SSE frame → the "Try again" card in `RoadmapPage`, which
+this step can and should confirm renders correctly. Step 4 (an actual
+generated roadmap to scroll, expand, and check off) stays blocked until the
+daily quota window resets. Whoever picks this up next with quota available
+should re-run step 4 specifically and update this note.
+
+---

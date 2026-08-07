@@ -1,6 +1,6 @@
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { DescriptiveAnswer } from "@/components/assessment/DescriptiveAnswer";
 import { McqOptions } from "@/components/assessment/McqOptions";
@@ -13,6 +13,7 @@ import { useAssessment, useSaveAnswer, useSubmitAssessment } from "@/hooks/useAs
 
 export default function AssessmentPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const assessmentId = Number(id);
 
   const { data: assessment, isPending } = useAssessment(assessmentId);
@@ -36,7 +37,7 @@ export default function AssessmentPage() {
     return (
       <AppShell>
         <TopBar title="Assessment results" subtitle={`${assessment.level} level`} />
-        <ResultSummary assessment={assessment} />
+        <ResultSummary assessment={assessment} onContinue={() => navigate("/roadmap")} />
       </AppShell>
     );
   }
