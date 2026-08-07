@@ -1721,7 +1721,7 @@ replacing the existing import block:
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -1828,7 +1828,10 @@ def submit_assessment(db: Session, ai_client: AIClient, assessment_id: int) -> A
     assessment.strengths, assessment.weaknesses = group_by_topic(assessment.questions)
     assessment.summary = summary
     assessment.status = "completed"
-    assessment.completed_at = datetime.utcnow()
+    # naive on purpose: the DateTime column isn't timezone-aware, and
+    # started_at (from SQLite's func.now()) is naive too — keeping both
+    # naive avoids mixing aware/naive datetimes on the same row.
+    assessment.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
     db.commit()
     db.refresh(assessment)
