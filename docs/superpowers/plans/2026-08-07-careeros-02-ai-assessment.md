@@ -456,6 +456,16 @@ class GeminiClient:
 
 - [ ] **Step 2: Add global exception handlers to `backend/main.py`**
 
+Add two imports and two exception handlers. This step deliberately touches
+nothing else — no new router, no new model import — so `main.py` stays
+importable through every remaining task instead of breaking until Task 7. (An
+earlier version of this plan wired the router and the model import in here
+too, which meant `pytest` couldn't collect *any* test — not just assessment
+tests — from this task through Task 6, since `conftest.py` imports `main` at
+module load time regardless of which fixture a given test uses. Splitting the
+router wiring out to Task 7, where the router actually exists, avoids that
+entirely.)
+
 Modify the imports and `create_app` function:
 
 ```python
@@ -467,9 +477,8 @@ from ai.errors import AIInvalidResponse, AIUnavailable
 from config import settings
 from db.base import Base
 from db.session import engine
-from models import assessment as _assessment_models  # noqa: F401
 from models import user as _user_models  # noqa: F401
-from routers import assessment, health, profile, tracks
+from routers import health, profile, tracks
 
 
 def create_app() -> FastAPI:
@@ -502,35 +511,31 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(profile.router)
     app.include_router(tracks.router)
-    app.include_router(assessment.router)
     return app
 
 
 app = create_app()
 ```
 
-This references `models.assessment` and `routers.assessment`, which don't exist
-yet — that's expected, they're built in Tasks 3 and 7. This step will not import
-cleanly until then, so **do not run the server or the test suite yet**; just save
-the file and continue to Task 3.
+- [ ] **Step 3: Run the full suite to confirm nothing broke**
 
-- [ ] **Step 3: Commit**
+Run: `cd backend && .venv/bin/pytest -v`
+Expected: PASS — `22 passed` (unchanged from Plan 1 — this task added no new
+tests, and `main.py` still imports cleanly)
+
+- [ ] **Step 4: Commit**
 
 ```bash
 git add backend/ai/gemini_client.py backend/main.py
 git commit -m "feat(backend): add GeminiClient and global AI error handlers"
 ```
 
-Note: this commit leaves `main.py` importing modules that don't exist yet
-(`models.assessment`, `routers.assessment`). That's an intentional, temporary
-broken state inside this plan — Task 3 and Task 7 complete it. If you need a
-runnable checkpoint before then, skip this commit and fold Task 2 into Task 7's
-commit instead.
+- [ ] **Step 5: Live smoke test (once Task 4's prompts exist)**
 
-- [ ] **Step 4: Live smoke test (after Task 7 makes the app importable again)**
-
-Once Tasks 3–7 are done and `.venv/bin/pytest` passes, come back and run this
-manual check with a real `GEMINI_API_KEY` in `backend/.env`:
+This doesn't need the HTTP layer at all — `get_ai_client()` and
+`build_generation_prompt` are plain Python. It can run as soon as Task 4 is
+done; come back to it then if you're executing straight through. Requires a
+real `GEMINI_API_KEY` in `backend/.env`.
 
 ```bash
 cd backend && .venv/bin/python -c "
@@ -1046,7 +1051,7 @@ git commit -m "feat(backend): add assessment generation and grading prompt build
 
 **Files:**
 - Create: `backend/schemas/assessment.py`, `backend/services/assessment_service.py`
-- Modify: `backend/tests/conftest.py`
+- Modify: `backend/tests/conftest.py`, `backend/services/profile_service.py`, `backend/tests/test_profile_service.py`
 - Test: `backend/tests/test_assessment_service.py`
 
 - [ ] **Step 1: Add the `fake_ai` fixture and wire it into `client`**
@@ -1368,7 +1373,14 @@ def get_assessment(db: Session, assessment_id: int) -> Assessment:
 
 
 def list_assessments(db: Session) -> list[Assessment]:
-    return list(db.scalars(select(Assessment).order_by(Assessment.started_at.desc())))
+    # id as a tiebreak: SQLite's func.now() has second-level resolution, so
+    # two assessments started within the same second would otherwise tie
+    # and sort unpredictably.
+    return list(
+        db.scalars(
+            select(Assessment).order_by(Assessment.started_at.desc(), Assessment.id.desc())
+        )
+    )
 
 
 def save_answer(db: Session, assessment_id: int, payload: AnswerSave) -> None:
@@ -1389,22 +1401,87 @@ def save_answer(db: Session, assessment_id: int, payload: AnswerSave) -> None:
 `submit_assessment` and its scoring helpers land in Task 6 — this file grows
 rather than getting replaced.
 
-- [ ] **Step 6: Run tests to verify they pass**
+The `list_assessments` ordering above already has an `Assessment.id.desc()`
+tiebreak baked in, not just `started_at.desc()`. Here's why: SQLite's
+`func.now()` (used for `started_at`'s `server_default`) has second-level
+resolution, so two assessments created within the same second — trivially
+easy in an automated test, plausible for a real user clicking through two
+onboarding flows back to back — tie under a plain `started_at DESC` sort and
+come back in whatever order SQLite feels like. `id` is monotonically
+increasing and never ties, so it's a reliable secondary key.
 
-Run: `cd backend && .venv/bin/pytest tests/test_assessment_service.py -v`
-Expected: PASS — `7 passed`
+Plan 1's `profile_service.list_tracks` has the exact same pattern
+(`order_by(LearningTrack.created_at.desc())` alone) and the exact same latent
+bug — it was never caught because no test checked its ordering, only that
+`is_active` filtering worked. Fix it the same way while this is fresh:
 
-Run the full suite too, since `conftest.py` changed:
+- [ ] **Step 6: Fix the identical ordering bug in `list_tracks`**
+
+In `backend/services/profile_service.py`, replace:
+
+```python
+def list_tracks(db: Session) -> list[LearningTrack]:
+    return list(
+        db.scalars(select(LearningTrack).order_by(LearningTrack.created_at.desc()))
+    )
+```
+
+with:
+
+```python
+def list_tracks(db: Session) -> list[LearningTrack]:
+    # id as a tiebreak: SQLite's func.now() has second-level resolution, so
+    # two tracks created within the same second would otherwise tie and
+    # sort unpredictably.
+    return list(
+        db.scalars(
+            select(LearningTrack).order_by(
+                LearningTrack.created_at.desc(), LearningTrack.id.desc()
+            )
+        )
+    )
+```
+
+Add a regression test — append to `backend/tests/test_profile_service.py`,
+right after `test_creating_a_second_track_deactivates_the_first`:
+
+```python
+def test_list_tracks_orders_most_recent_first(db_session):
+    _onboard(db_session)
+    first = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+    second = profile_service.create_track(
+        db_session, TrackCreate(topic="React", experience_level="intermediate")
+    )
+
+    listed = profile_service.list_tracks(db_session)
+
+    assert [t.id for t in listed] == [second.id, first.id]
+```
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `cd backend && .venv/bin/pytest tests/test_assessment_service.py tests/test_profile_service.py -v`
+Expected: PASS — `24 passed` (7 assessment_service + 17 profile_service)
+
+Run the full suite:
 
 Run: `cd backend && .venv/bin/pytest -v`
-Expected: PASS — `49 passed` (22 from Plan 1 + 5 retry + 3 ai_client + 2 get_track
-+ 3 assessment_models + 7 assessment_prompts + 7 assessment_service)
+Expected: PASS — `50 passed` (22 from Plan 1 + 5 retry + 3 ai_client + 2 get_track
++ 1 list_tracks ordering regression + 3 assessment_models + 7 assessment_prompts
++ 7 assessment_service)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add backend/schemas/assessment.py backend/services/assessment_service.py backend/tests/conftest.py backend/tests/test_assessment_service.py
-git commit -m "feat(backend): add assessment generation, read, and autosave"
+git add backend/schemas/assessment.py backend/services/assessment_service.py backend/services/profile_service.py backend/tests/conftest.py backend/tests/test_assessment_service.py backend/tests/test_profile_service.py
+git commit -m "feat(backend): add assessment generation, read, and autosave
+
+Also fixes an ordering bug found via list_assessments and applied
+identically to profile_service.list_tracks: SQLite's func.now() has
+second-level resolution, so rows created in the same second tied under
+a plain started_at/created_at DESC sort."
 ```
 
 ---
@@ -1771,7 +1848,7 @@ Expected: PASS — `17 passed`
 Run the full suite:
 
 Run: `cd backend && .venv/bin/pytest -v`
-Expected: PASS — `59 passed`
+Expected: PASS — `60 passed`
 
 - [ ] **Step 5: Commit**
 
@@ -2117,18 +2194,43 @@ def submit_assessment(
         raise _ALREADY_SUBMITTED
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Wire the router into `backend/main.py`**
+
+This is the only remaining piece — Task 2 deliberately left it out so
+`main.py` would stay importable the whole way through. No model-registration
+import is needed here: `routers.assessment` imports `services.assessment_service`,
+which imports `models.assessment`, so `Assessment`/`AssessmentQuestion` are
+already registered on `Base`'s metadata by the time this router is included —
+Python registers a SQLAlchemy declarative class the moment its module is
+imported anywhere, not only when `main.py` imports it directly.
+
+Change the routers import line:
+
+```python
+from routers import assessment, health, profile, tracks
+```
+
+Add the include, after the existing three:
+
+```python
+    app.include_router(health.router)
+    app.include_router(profile.router)
+    app.include_router(tracks.router)
+    app.include_router(assessment.router)
+    return app
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_assessment_api.py -v`
 Expected: PASS — `9 passed`
 
-Run the full suite — this is the first point since Task 2 where `main.py`
-imports cleanly:
+Run the full suite:
 
 Run: `cd backend && .venv/bin/pytest -v`
-Expected: PASS — `68 passed`
+Expected: PASS — `69 passed`
 
-- [ ] **Step 6: Verify the server boots with all routes**
+- [ ] **Step 7: Verify the server boots with all routes**
 
 ```bash
 cd backend && rm -f careeros.db careeros.db-wal careeros.db-shm
@@ -2147,33 +2249,12 @@ Expected: `{"status":"ok"}` plus the full route list including
 `/api/tracks/{track_id}/assessment`, `/api/assessments`, and
 `/api/assessments/{assessment_id}` / `/answers` / `/submit`.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add backend/routers/assessment.py backend/services/assessment_service.py backend/tests/test_assessment_api.py
+git add backend/main.py backend/routers/assessment.py backend/services/assessment_service.py backend/tests/test_assessment_api.py
 git commit -m "feat(backend): add assessment router with reveal-gated serialization"
 ```
-
-- [ ] **Step 8: Now run the Task 2 live smoke test**
-
-Task 2's Step 4 was deferred until the app was importable — it is now. Run it:
-
-```bash
-cd backend && .venv/bin/python -c "
-from ai.client import get_ai_client
-from ai.prompts.assessment import build_generation_prompt
-
-client = get_ai_client()
-prompt = build_generation_prompt('Python', 'intermediate')
-result = client.generate_json(prompt)
-print(len(result['questions']), 'questions generated')
-print(result['questions'][0])
-"
-```
-
-Expected: a real question count between 8 and 12 and a real question dict,
-printed from an actual Gemini call. If this fails with `AIUnavailable`, check
-that `backend/.env` has a working `GEMINI_API_KEY`.
 
 ---
 
@@ -2923,7 +3004,7 @@ git commit -m "feat(frontend): route Intermediate and Advanced onboarding into t
 - [ ] **Step 5: Full backend and frontend verification**
 
 Run: `cd backend && .venv/bin/pytest -v`
-Expected: PASS — `68 passed`
+Expected: PASS — `69 passed`
 
 Run: `cd frontend && npm run build && npm test`
 Expected: build succeeds, `2 passed`
@@ -2980,7 +3061,7 @@ cd backend && rm -f careeros.db careeros.db-wal careeros.db-shm
 
 ## Done when
 
-- `cd backend && .venv/bin/pytest` → 68 passed
+- `cd backend && .venv/bin/pytest` → 69 passed
 - `cd frontend && npm run build && npm test` → build clean, 2 passed
 - A real Gemini call generates a topic-and-level-appropriate assessment (not a
   static question bank)
