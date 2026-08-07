@@ -48,8 +48,15 @@ def update_profile(db: Session, payload: ProfileUpdate) -> User:
 
 
 def list_tracks(db: Session) -> list[LearningTrack]:
+    # id as a tiebreak: SQLite's func.now() has second-level resolution, so
+    # two tracks created within the same second would otherwise tie and
+    # sort unpredictably.
     return list(
-        db.scalars(select(LearningTrack).order_by(LearningTrack.created_at.desc()))
+        db.scalars(
+            select(LearningTrack).order_by(
+                LearningTrack.created_at.desc(), LearningTrack.id.desc()
+            )
+        )
     )
 
 

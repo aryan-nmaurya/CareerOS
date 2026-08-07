@@ -10,10 +10,12 @@ from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
+from ai.client import FakeAIClient, get_ai_client  # noqa: E402
 from db.base import Base  # noqa: E402
 from db.session import get_db  # noqa: E402
 from main import app  # noqa: E402
-from models import user as _user_models  # noqa: E402,F401  registers tables
+from models import assessment as _assessment_models  # noqa: E402,F401
+from models import user as _user_models  # noqa: E402,F401
 
 
 @pytest.fixture()
@@ -39,8 +41,14 @@ def db_session():
 
 
 @pytest.fixture()
-def client(db_session):
+def fake_ai():
+    return FakeAIClient()
+
+
+@pytest.fixture()
+def client(db_session, fake_ai):
     app.dependency_overrides[get_db] = lambda: db_session
+    app.dependency_overrides[get_ai_client] = lambda: fake_ai
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

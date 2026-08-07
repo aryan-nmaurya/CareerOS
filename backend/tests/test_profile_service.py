@@ -113,6 +113,23 @@ def test_creating_a_second_track_deactivates_the_first(db_session):
     assert len(active) == 1
 
 
+def test_list_tracks_orders_most_recent_first(db_session):
+    _onboard(db_session)
+    first = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+    second = profile_service.create_track(
+        db_session, TrackCreate(topic="React", experience_level="intermediate")
+    )
+
+    # id is the tiebreak because both tracks can land in the same
+    # func.now() second in a fast test run — created_at alone isn't
+    # reliably ordered in that case.
+    listed = profile_service.list_tracks(db_session)
+
+    assert [t.id for t in listed] == [second.id, first.id]
+
+
 def test_activate_track_switches_the_active_one(db_session):
     _onboard(db_session)
     first = profile_service.create_track(
