@@ -148,3 +148,21 @@ def test_get_active_track_returns_none_when_no_tracks(db_session):
     _onboard(db_session)
 
     assert profile_service.get_active_track(db_session) is None
+
+
+def test_get_track_returns_the_track(db_session):
+    _onboard(db_session)
+    created = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+
+    fetched = profile_service.get_track(db_session, created.id)
+
+    assert fetched.id == created.id
+
+
+def test_get_track_unknown_raises(db_session):
+    _onboard(db_session)
+
+    with pytest.raises(TrackNotFoundError):
+        profile_service.get_track(db_session, 4242)

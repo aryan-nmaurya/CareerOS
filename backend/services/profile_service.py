@@ -92,3 +92,10 @@ def activate_track(db: Session, track_id: int) -> LearningTrack:
     db.commit()
     db.refresh(target)
     return target
+
+
+def get_track(db: Session, track_id: int) -> LearningTrack:
+    track = db.get(LearningTrack, track_id)
+    if track is None:
+        raise TrackNotFoundError
+    return track
