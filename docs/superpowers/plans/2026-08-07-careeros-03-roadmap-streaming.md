@@ -2010,3 +2010,246 @@ git commit -m "feat(backend): add roadmap schemas, router, and progress/toggle e
 ```
 
 ---
+
+## Task 8: Dashboard aggregate
+
+**Files:**
+- Create: `backend/schemas/dashboard.py`
+- Create: `backend/services/dashboard_service.py`
+- Create: `backend/routers/dashboard.py`
+- Modify: `backend/main.py` (router wiring — no new model, dashboard has no table)
+- Test: `backend/tests/test_dashboard_api.py`
+
+One read-only aggregate: profile, active track, roadmap summary, current
+phase, module counts, next module to work on, recent interviews. Every piece
+already exists (`profile_service`, `roadmap_service`, `progress_service`) —
+this just composes them and degrades gracefully at each stage nothing exists
+yet (no profile → no track → no roadmap), which is exactly the sequence a
+brand-new install walks through. `recent_interviews` is always `[]` for
+now — Plan 4 introduces the model that actually fills it in.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/tests/test_dashboard_api.py`:
+
+```python
+_HAPPY_CHUNKS = [
+    '{"title": "Python Roadmap", "summary": "From zero to functional scripts.", ',
+    '"total_weeks": 4, "weekly_hours": 5, ',
+    '"weekly_goals": [{"week": 1, "goal": "Learn syntax", "phase_order": 0}], ',
+    '"final_project": {"title": "CLI Tool", "description": "Build a CLI", "skills_demonstrated": ["cli"]}, ',
+    '"phases": [',
+    '{"title": "Foundations", "description": "The basics.", "goal": "Write simple scripts.", '
+    '"estimated_hours": 10, "modules": [',
+    '{"title": "Variables", "description": "Learn variables.", "lessons": ["l1"], "exercises": ["e1"], ',
+    '"project": null, "estimated_hours": 3, "kind": "module"}',
+    ']}',
+    ']}',
+]
+
+
+def test_dashboard_before_any_profile_returns_empty_shape(client):
+    response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["profile"] is None
+    assert body["active_track"] is None
+    assert body["completed_modules"] == 0
+    assert body["remaining_modules"] == 0
+    assert body["completion_pct"] == 0.0
+    assert body["next_module"] is None
+    assert body["recent_interviews"] == []
+
+
+def test_dashboard_with_profile_but_no_active_track_returns_partial_shape(client):
+    client.post("/api/profile", json={"name": "Aryan"})
+
+    response = client.get("/api/dashboard")
+
+    body = response.json()
+    assert body["profile"]["name"] == "Aryan"
+    assert body["active_track"] is None
+    assert body["roadmap_summary"] is None
+
+
+def test_dashboard_with_track_but_no_roadmap_returns_partial_shape(client):
+    client.post("/api/profile", json={"name": "Aryan"})
+    client.post("/api/tracks", json={"topic": "Python", "experience_level": "beginner"})
+
+    response = client.get("/api/dashboard")
+
+    body = response.json()
+    assert body["active_track"]["topic"] == "Python"
+    assert body["roadmap_summary"] is None
+    assert body["current_phase"] is None
+    assert body["next_module"] is None
+
+
+def test_dashboard_reflects_roadmap_progress_and_updates_after_module_completion(client, fake_ai):
+    client.post("/api/profile", json={"name": "Aryan"})
+    track_id = client.post(
+        "/api/tracks", json={"topic": "Python", "experience_level": "beginner"}
+    ).json()["id"]
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+    client.post(f"/api/tracks/{track_id}/roadmap/stream")
+
+    before = client.get("/api/dashboard").json()
+    assert before["roadmap_summary"] == "From zero to functional scripts."
+    assert before["current_phase"] == "Foundations"
+    assert before["completed_modules"] == 0
+    assert before["remaining_modules"] == 1
+    assert before["completion_pct"] == 0.0
+    assert before["next_module"]["title"] == "Variables"
+    assert before["next_module"]["kind"] == "module"
+
+    module_id = before["next_module"]["id"]
+    client.patch(f"/api/modules/{module_id}", json={"completed": True})
+
+    after = client.get("/api/dashboard").json()
+    assert after["completed_modules"] == 1
+    assert after["remaining_modules"] == 0
+    assert after["completion_pct"] == 100.0
+    assert after["next_module"] is None
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd backend && .venv/bin/pytest tests/test_dashboard_api.py -v`
+Expected: FAIL — `404` on `/api/dashboard` (route doesn't exist yet)
+
+- [ ] **Step 3: Write `backend/schemas/dashboard.py`**
+
+```python
+from pydantic import BaseModel
+
+from schemas.profile import ProfileOut, TrackOut
+
+
+class NextModuleOut(BaseModel):
+    id: int
+    title: str
+    kind: str
+    phase_title: str
+
+
+class DashboardOut(BaseModel):
+    profile: ProfileOut | None
+    active_track: TrackOut | None
+    roadmap_summary: str | None
+    current_phase: str | None
+    completed_modules: int
+    remaining_modules: int
+    completion_pct: float
+    next_module: NextModuleOut | None
+    recent_interviews: list = []
+```
+
+- [ ] **Step 4: Write `backend/services/dashboard_service.py`**
+
+```python
+from __future__ import annotations
+
+from sqlalchemy.orm import Session
+
+from schemas.dashboard import DashboardOut, NextModuleOut
+from schemas.profile import ProfileOut, TrackOut
+from services import profile_service, roadmap_service
+from services.progress_service import current_phase_index, build_progress
+from services.roadmap_service import RoadmapNotFoundError
+
+_EMPTY = dict(
+    roadmap_summary=None,
+    current_phase=None,
+    completed_modules=0,
+    remaining_modules=0,
+    completion_pct=0.0,
+    next_module=None,
+    recent_interviews=[],
+)
+
+
+def _find_next_module(phases) -> NextModuleOut | None:
+    if not phases:
+        return None
+    phase = phases[current_phase_index(phases)]
+    for module in phase.modules:
+        if module.completed_at is None:
+            return NextModuleOut(
+                id=module.id, title=module.title, kind=module.kind, phase_title=phase.title
+            )
+    return None
+
+
+def get_dashboard(db: Session) -> DashboardOut:
+    user = profile_service.get_profile(db)
+    if user is None:
+        return DashboardOut(profile=None, active_track=None, **_EMPTY)
+
+    profile_out = ProfileOut.model_validate(user)
+    active_track = profile_service.get_active_track(db)
+    if active_track is None:
+        return DashboardOut(profile=profile_out, active_track=None, **_EMPTY)
+
+    track_out = TrackOut.model_validate(active_track)
+    try:
+        roadmap = roadmap_service.get_roadmap_by_track(db, active_track.id)
+    except RoadmapNotFoundError:
+        return DashboardOut(profile=profile_out, active_track=track_out, **_EMPTY)
+
+    progress = build_progress(roadmap.phases)
+    return DashboardOut(
+        profile=profile_out,
+        active_track=track_out,
+        roadmap_summary=roadmap.summary,
+        current_phase=progress["current_phase_title"],
+        completed_modules=progress["completed_modules"],
+        remaining_modules=progress["total_modules"] - progress["completed_modules"],
+        completion_pct=progress["completion_pct"],
+        next_module=_find_next_module(roadmap.phases),
+        recent_interviews=[],
+    )
+```
+
+- [ ] **Step 5: Write `backend/routers/dashboard.py`**
+
+```python
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from db.session import get_db
+from schemas.dashboard import DashboardOut
+from services import dashboard_service
+
+router = APIRouter(tags=["dashboard"])
+
+
+@router.get("/api/dashboard", response_model=DashboardOut)
+def get_dashboard(db: Session = Depends(get_db)):
+    return dashboard_service.get_dashboard(db)
+```
+
+- [ ] **Step 6: Wire `backend/main.py`**
+
+Add `dashboard` to the `from routers import ...` line and add
+`app.include_router(dashboard.router)` next to the other `include_router` calls.
+No model import needed — the dashboard has no table of its own.
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `cd backend && .venv/bin/pytest tests/test_dashboard_api.py -v`
+Expected: PASS — `4 passed`
+
+- [ ] **Step 8: Run the full backend suite**
+
+Run: `cd backend && .venv/bin/pytest -v`
+Expected: PASS — `116 passed` (112 before this task + 4)
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add backend/schemas/dashboard.py backend/services/dashboard_service.py backend/routers/dashboard.py backend/main.py backend/tests/test_dashboard_api.py
+git commit -m "feat(backend): add dashboard aggregate endpoint"
+```
+
+---
