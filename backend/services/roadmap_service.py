@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Iterator
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ai.client import AIClient
@@ -9,10 +11,26 @@ from ai.errors import AIInvalidResponse, AIUnavailable
 from ai.prompts.roadmap import build_roadmap_prompt
 from ai.stream_parser import PhaseStreamParser
 from models.roadmap import Roadmap, RoadmapModule, RoadmapPhase
+from schemas.roadmap import (
+    ModuleToggleOut,
+    ProgressOut,
+    RoadmapModuleOut,
+    RoadmapOut,
+    RoadmapPhaseOut,
+)
 from services import assessment_service, profile_service
 from services.profile_service import TrackNotFoundError
+from services.progress_service import build_progress
 
 StreamEvent = tuple[str, dict]
+
+
+class RoadmapNotFoundError(Exception):
+    pass
+
+
+class ModuleNotFoundError(Exception):
+    pass
 
 
 def stream_roadmap(db: Session, ai_client: AIClient, track_id: int) -> Iterator[StreamEvent]:
@@ -114,3 +132,87 @@ def stream_roadmap(db: Session, ai_client: AIClient, track_id: int) -> Iterator[
 
     db.commit()
     yield ("done", {"roadmap_id": roadmap.id})
+
+
+def get_roadmap_by_track(db: Session, track_id: int) -> Roadmap:
+    roadmap = db.scalars(
+        select(Roadmap)
+        .where(Roadmap.track_id == track_id)
+        .order_by(Roadmap.created_at.desc(), Roadmap.id.desc())
+    ).first()
+    if roadmap is None:
+        raise RoadmapNotFoundError
+    return roadmap
+
+
+def get_module(db: Session, module_id: int) -> RoadmapModule:
+    module = db.get(RoadmapModule, module_id)
+    if module is None:
+        raise ModuleNotFoundError
+    return module
+
+
+def toggle_module(db: Session, module_id: int, completed: bool) -> RoadmapModule:
+    module = get_module(db, module_id)
+    if completed:
+        if module.completed_at is None:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            module.completed_at = now
+            if module.started_at is None:
+                module.started_at = now
+    else:
+        # started_at is left alone on purpose — un-completing shouldn't erase
+        # that the learner did start it at some point.
+        module.completed_at = None
+    db.commit()
+    db.refresh(module)
+    return module
+
+
+def to_module_out(module: RoadmapModule) -> RoadmapModuleOut:
+    return RoadmapModuleOut(
+        id=module.id,
+        order_index=module.order_index,
+        title=module.title,
+        description=module.description,
+        lessons=module.lessons,
+        exercises=module.exercises,
+        project=module.project,
+        estimated_hours=module.estimated_hours,
+        kind=module.kind,
+        started_at=module.started_at,
+        completed_at=module.completed_at,
+    )
+
+
+def to_phase_out(phase: RoadmapPhase) -> RoadmapPhaseOut:
+    return RoadmapPhaseOut(
+        id=phase.id,
+        order_index=phase.order_index,
+        title=phase.title,
+        description=phase.description,
+        goal=phase.goal,
+        estimated_hours=phase.estimated_hours,
+        modules=[to_module_out(m) for m in phase.modules],
+    )
+
+
+def to_roadmap_out(roadmap: Roadmap) -> RoadmapOut:
+    return RoadmapOut(
+        id=roadmap.id,
+        track_id=roadmap.track_id,
+        title=roadmap.title,
+        summary=roadmap.summary,
+        total_weeks=roadmap.total_weeks,
+        weekly_hours=roadmap.weekly_hours,
+        weekly_goals=roadmap.weekly_goals,
+        final_project=roadmap.final_project,
+        created_at=roadmap.created_at,
+        phases=[to_phase_out(p) for p in roadmap.phases],
+        progress=ProgressOut(**build_progress(roadmap.phases)),
+    )
+
+
+def to_module_toggle_out(module: RoadmapModule) -> ModuleToggleOut:
+    progress = build_progress(module.phase.roadmap.phases)
+    return ModuleToggleOut(module=to_module_out(module), progress=ProgressOut(**progress))

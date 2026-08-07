@@ -1576,3 +1576,437 @@ git commit -m "feat(backend): add roadmap service with streaming persistence and
 ```
 
 ---
+
+## Task 7: Roadmap schemas and router
+
+**Files:**
+- Create: `backend/schemas/roadmap.py`
+- Modify: `backend/services/roadmap_service.py` (read/toggle functions + output builders)
+- Create: `backend/routers/roadmap.py`
+- Modify: `backend/main.py` (model import + router wiring)
+- Modify: `backend/tests/conftest.py` (defensive `models.roadmap` import, matching the existing pattern for `models.assessment`/`models.user` — needed so `Base.metadata.create_all` sees the roadmap tables even if a test file is run in isolation from ones that happen to import `models.roadmap` first)
+- Test: `backend/tests/test_roadmap_api.py`
+
+Output builders follow the same explicit, field-by-field pattern as
+`assessment_service.to_assessment_out` — no bare `model_validate(orm_obj)`
+relied on for nested shapes, so there is one obvious place that decides what
+a client sees.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/tests/test_roadmap_api.py`:
+
+```python
+import json
+
+_HAPPY_CHUNKS = [
+    '{"title": "Python Roadmap", "summary": "From zero to functional scripts.", ',
+    '"total_weeks": 4, "weekly_hours": 5, ',
+    '"weekly_goals": [{"week": 1, "goal": "Learn syntax", "phase_order": 0}], ',
+    '"final_project": {"title": "CLI Tool", "description": "Build a CLI", "skills_demonstrated": ["cli"]}, ',
+    '"phases": [',
+    '{"title": "Foundations", "description": "The basics.", "goal": "Write simple scripts.", '
+    '"estimated_hours": 10, "modules": [',
+    '{"title": "Variables", "description": "Learn variables.", "lessons": ["l1"], "exercises": ["e1"], ',
+    '"project": null, "estimated_hours": 3, "kind": "module"}',
+    ']}',
+    ']}',
+]
+
+
+def _onboard_and_track(client, level="beginner"):
+    client.post("/api/profile", json={"name": "Aryan"})
+    track = client.post(
+        "/api/tracks", json={"topic": "Python", "experience_level": level}
+    )
+    return track.json()["id"]
+
+
+def _parse_sse(text):
+    events = []
+    for block in text.strip().split("\n\n"):
+        if not block:
+            continue
+        lines = block.splitlines()
+        event = next(l.split(": ", 1)[1] for l in lines if l.startswith("event: "))
+        data = next(l.split(": ", 1)[1] for l in lines if l.startswith("data: "))
+        events.append((event, json.loads(data)))
+    return events
+
+
+def test_generate_roadmap_streams_meta_phase_and_done(client, fake_ai):
+    track_id = _onboard_and_track(client)
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+
+    response = client.post(f"/api/tracks/{track_id}/roadmap/stream")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse(response.text)
+    assert [e for e, _ in events] == ["meta", "phase", "done"]
+    assert events[0][1]["title"] == "Python Roadmap"
+
+
+def test_generate_roadmap_unknown_track_streams_error_event(client, fake_ai):
+    response = client.post("/api/tracks/999/roadmap/stream")
+
+    events = _parse_sse(response.text)
+    assert events == [("error", {"code": "track_not_found", "message": "That learning track does not exist."})]
+    assert fake_ai.stream_calls == []
+
+
+def test_get_roadmap_returns_full_shape_with_progress(client, fake_ai):
+    track_id = _onboard_and_track(client)
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+    client.post(f"/api/tracks/{track_id}/roadmap/stream")
+
+    response = client.get(f"/api/tracks/{track_id}/roadmap")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Python Roadmap"
+    assert len(body["phases"]) == 1
+    assert len(body["phases"][0]["modules"]) == 1
+    assert body["phases"][0]["modules"][0]["title"] == "Variables"
+    assert body["progress"]["total_modules"] == 1
+    assert body["progress"]["completed_modules"] == 0
+
+
+def test_get_roadmap_before_generation_returns_404(client):
+    track_id = _onboard_and_track(client)
+
+    response = client.get(f"/api/tracks/{track_id}/roadmap")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "roadmap_not_found"
+
+
+def test_patch_module_toggles_completion_both_ways(client, fake_ai):
+    track_id = _onboard_and_track(client)
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+    client.post(f"/api/tracks/{track_id}/roadmap/stream")
+    module_id = client.get(f"/api/tracks/{track_id}/roadmap").json()["phases"][0]["modules"][0]["id"]
+
+    completed = client.patch(f"/api/modules/{module_id}", json={"completed": True})
+    assert completed.status_code == 200
+    completed_body = completed.json()
+    assert completed_body["module"]["completed_at"] is not None
+    assert completed_body["progress"]["completed_modules"] == 1
+    assert completed_body["progress"]["completion_pct"] == 100.0
+
+    uncompleted = client.patch(f"/api/modules/{module_id}", json={"completed": False})
+    uncompleted_body = uncompleted.json()
+    assert uncompleted_body["module"]["completed_at"] is None
+    assert uncompleted_body["progress"]["completed_modules"] == 0
+
+
+def test_patch_module_unknown_returns_404(client):
+    response = client.patch("/api/modules/999", json={"completed": True})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "module_not_found"
+
+
+def test_get_progress_before_roadmap_returns_404(client):
+    track_id = _onboard_and_track(client)
+
+    response = client.get(f"/api/tracks/{track_id}/progress")
+
+    assert response.status_code == 404
+
+
+def test_get_progress_matches_roadmap_progress(client, fake_ai):
+    track_id = _onboard_and_track(client)
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+    client.post(f"/api/tracks/{track_id}/roadmap/stream")
+
+    response = client.get(f"/api/tracks/{track_id}/progress")
+
+    assert response.status_code == 200
+    assert response.json()["total_modules"] == 1
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd backend && .venv/bin/pytest tests/test_roadmap_api.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'schemas.roadmap'`
+
+- [ ] **Step 3: Write `backend/schemas/roadmap.py`**
+
+```python
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+class RoadmapModuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_index: int
+    title: str
+    description: str
+    lessons: list[str]
+    exercises: list[str]
+    project: dict | None
+    estimated_hours: int
+    kind: str
+    started_at: datetime | None
+    completed_at: datetime | None
+
+
+class RoadmapPhaseOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_index: int
+    title: str
+    description: str
+    goal: str
+    estimated_hours: int
+    modules: list[RoadmapModuleOut]
+
+
+class PhaseProgressOut(BaseModel):
+    order_index: int
+    completion_pct: float
+    unlocked: bool
+
+
+class ProgressOut(BaseModel):
+    completion_pct: float
+    completed_modules: int
+    total_modules: int
+    current_phase_index: int
+    current_phase_title: str | None
+    phases: list[PhaseProgressOut]
+
+
+class RoadmapOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    track_id: int
+    title: str
+    summary: str
+    total_weeks: int
+    weekly_hours: int
+    weekly_goals: list[dict]
+    final_project: dict | None
+    created_at: datetime
+    phases: list[RoadmapPhaseOut]
+    progress: ProgressOut
+
+
+class ModuleToggle(BaseModel):
+    completed: bool
+
+
+class ModuleToggleOut(BaseModel):
+    module: RoadmapModuleOut
+    progress: ProgressOut
+```
+
+- [ ] **Step 4: Add read/toggle functions and output builders to `backend/services/roadmap_service.py`**
+
+Add `from datetime import UTC, datetime` and `from sqlalchemy import select` to the
+imports, add `from schemas.roadmap import (ModuleToggleOut, ProgressOut, RoadmapModuleOut, RoadmapOut, RoadmapPhaseOut)`
+and `from services.progress_service import build_progress`, then append:
+
+```python
+class RoadmapNotFoundError(Exception):
+    pass
+
+
+class ModuleNotFoundError(Exception):
+    pass
+
+
+def get_roadmap_by_track(db: Session, track_id: int) -> Roadmap:
+    roadmap = db.scalars(
+        select(Roadmap)
+        .where(Roadmap.track_id == track_id)
+        .order_by(Roadmap.created_at.desc(), Roadmap.id.desc())
+    ).first()
+    if roadmap is None:
+        raise RoadmapNotFoundError
+    return roadmap
+
+
+def get_module(db: Session, module_id: int) -> RoadmapModule:
+    module = db.get(RoadmapModule, module_id)
+    if module is None:
+        raise ModuleNotFoundError
+    return module
+
+
+def toggle_module(db: Session, module_id: int, completed: bool) -> RoadmapModule:
+    module = get_module(db, module_id)
+    if completed:
+        if module.completed_at is None:
+            now = datetime.now(UTC).replace(tzinfo=None)
+            module.completed_at = now
+            if module.started_at is None:
+                module.started_at = now
+    else:
+        # started_at is left alone on purpose — un-completing shouldn't erase
+        # that the learner did start it at some point.
+        module.completed_at = None
+    db.commit()
+    db.refresh(module)
+    return module
+
+
+def to_module_out(module: RoadmapModule) -> RoadmapModuleOut:
+    return RoadmapModuleOut(
+        id=module.id,
+        order_index=module.order_index,
+        title=module.title,
+        description=module.description,
+        lessons=module.lessons,
+        exercises=module.exercises,
+        project=module.project,
+        estimated_hours=module.estimated_hours,
+        kind=module.kind,
+        started_at=module.started_at,
+        completed_at=module.completed_at,
+    )
+
+
+def to_phase_out(phase: RoadmapPhase) -> RoadmapPhaseOut:
+    return RoadmapPhaseOut(
+        id=phase.id,
+        order_index=phase.order_index,
+        title=phase.title,
+        description=phase.description,
+        goal=phase.goal,
+        estimated_hours=phase.estimated_hours,
+        modules=[to_module_out(m) for m in phase.modules],
+    )
+
+
+def to_roadmap_out(roadmap: Roadmap) -> RoadmapOut:
+    return RoadmapOut(
+        id=roadmap.id,
+        track_id=roadmap.track_id,
+        title=roadmap.title,
+        summary=roadmap.summary,
+        total_weeks=roadmap.total_weeks,
+        weekly_hours=roadmap.weekly_hours,
+        weekly_goals=roadmap.weekly_goals,
+        final_project=roadmap.final_project,
+        created_at=roadmap.created_at,
+        phases=[to_phase_out(p) for p in roadmap.phases],
+        progress=ProgressOut(**build_progress(roadmap.phases)),
+    )
+
+
+def to_module_toggle_out(module: RoadmapModule) -> ModuleToggleOut:
+    progress = build_progress(module.phase.roadmap.phases)
+    return ModuleToggleOut(module=to_module_out(module), progress=ProgressOut(**progress))
+```
+
+- [ ] **Step 5: Write `backend/routers/roadmap.py`**
+
+```python
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from ai.client import AIClient, get_ai_client
+from db.session import get_db
+from schemas.roadmap import ModuleToggle, ModuleToggleOut, ProgressOut, RoadmapOut
+from services import roadmap_service
+from services.progress_service import build_progress
+from services.roadmap_service import ModuleNotFoundError, RoadmapNotFoundError
+
+router = APIRouter(tags=["roadmap"])
+
+_ROADMAP_MISSING = HTTPException(
+    status_code=status.HTTP_404_NOT_FOUND,
+    detail={"code": "roadmap_not_found", "message": "No roadmap exists for that track yet."},
+)
+_MODULE_MISSING = HTTPException(
+    status_code=status.HTTP_404_NOT_FOUND,
+    detail={"code": "module_not_found", "message": "That module does not exist."},
+)
+
+
+def _format_sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/api/tracks/{track_id}/roadmap/stream")
+def generate_roadmap(
+    track_id: int,
+    db: Session = Depends(get_db),
+    ai_client: AIClient = Depends(get_ai_client),
+):
+    def event_stream():
+        for event, data in roadmap_service.stream_roadmap(db, ai_client, track_id):
+            yield _format_sse(event, data)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/api/tracks/{track_id}/roadmap", response_model=RoadmapOut)
+def get_roadmap(track_id: int, db: Session = Depends(get_db)):
+    try:
+        roadmap = roadmap_service.get_roadmap_by_track(db, track_id)
+    except RoadmapNotFoundError:
+        raise _ROADMAP_MISSING
+    return roadmap_service.to_roadmap_out(roadmap)
+
+
+@router.patch("/api/modules/{module_id}", response_model=ModuleToggleOut)
+def patch_module(module_id: int, payload: ModuleToggle, db: Session = Depends(get_db)):
+    try:
+        module = roadmap_service.toggle_module(db, module_id, payload.completed)
+    except ModuleNotFoundError:
+        raise _MODULE_MISSING
+    return roadmap_service.to_module_toggle_out(module)
+
+
+@router.get("/api/tracks/{track_id}/progress", response_model=ProgressOut)
+def get_progress(track_id: int, db: Session = Depends(get_db)):
+    try:
+        roadmap = roadmap_service.get_roadmap_by_track(db, track_id)
+    except RoadmapNotFoundError:
+        raise _ROADMAP_MISSING
+    return ProgressOut(**build_progress(roadmap.phases))
+```
+
+- [ ] **Step 6: Wire `backend/main.py`**
+
+Add `from models import roadmap as _roadmap_models  # noqa: F401` next to the
+other model imports, add `roadmap` to the `from routers import ...` line, and
+add `app.include_router(roadmap.router)` next to the other `include_router` calls.
+
+- [ ] **Step 7: Add the defensive model import to `backend/tests/conftest.py`**
+
+Add next to the existing `models.assessment`/`models.user` imports:
+
+```python
+from models import roadmap as _roadmap_models  # noqa: E402,F401
+```
+
+- [ ] **Step 8: Run tests to verify they pass**
+
+Run: `cd backend && .venv/bin/pytest tests/test_roadmap_api.py -v`
+Expected: PASS — `8 passed`
+
+- [ ] **Step 9: Run the full backend suite**
+
+Run: `cd backend && .venv/bin/pytest -v`
+Expected: PASS — `112 passed` (104 before this task + 8)
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add backend/schemas/roadmap.py backend/services/roadmap_service.py backend/routers/roadmap.py backend/main.py backend/tests/conftest.py backend/tests/test_roadmap_api.py
+git commit -m "feat(backend): add roadmap schemas, router, and progress/toggle endpoints"
+```
+
+---

@@ -15,6 +15,7 @@ from db.base import Base  # noqa: E402
 from db.session import get_db  # noqa: E402
 from main import app  # noqa: E402
 from models import assessment as _assessment_models  # noqa: E402,F401
+from models import roadmap as _roadmap_models  # noqa: E402,F401
 from models import user as _user_models  # noqa: E402,F401
 
 
