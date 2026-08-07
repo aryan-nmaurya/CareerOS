@@ -23,7 +23,7 @@ surface. It deliberately excludes auth, multi-tenancy, deployment, and billing.
 
 | Decision | Choice | Reason |
 |---|---|---|
-| LLM | Google Gemini (`gemini-2.5-flash`) via `google-genai` | Native `response_schema` structured output makes roadmap/assessment JSON reliable without prompt gymnastics. Generous free tier. |
+| LLM | Google Gemini (`gemini-3.5-flash`) via `google-genai` | Native `response_schema` structured output makes roadmap/assessment JSON reliable without prompt gymnastics. Generous free tier. |
 | Proctoring | In-browser MediaPipe Tasks Vision (WASM) | Real-time at 10fps, no video leaves the machine, no bandwidth. Also: MediaPipe's Python wheels do not support the installed Python 3.14. |
 | Long AI waits | SSE streaming, phase-by-phase | Roadmap generation is 15–45s. Streaming turns a dead spinner into the best moment in the demo. |
 | Testing | Focused (~28 tests) | Cover the logic where silent bugs hide: stream parsing, scoring, progress math, warning escalation. No network in tests. |
@@ -587,7 +587,7 @@ Focused coverage of logic where bugs stay silent. No test performs network I/O.
 
 ```
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.5-flash
 DATABASE_URL=sqlite:///./careeros.db
 CORS_ORIGINS=http://localhost:5173
 ```
