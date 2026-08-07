@@ -285,6 +285,36 @@ def test_submit_scores_mcq_and_grades_descriptive_via_one_ai_call(db_session, fa
     assert grading_call.user_content.count("Question ") == 1
 
 
+# ── get_latest_completed_assessment ──────────────────────────────────────
+
+
+def test_get_latest_completed_assessment_returns_most_recent(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(8))
+    older = assessment_service.start_assessment(db_session, fake_ai, track.id)
+    older.status = "completed"
+    db_session.commit()
+
+    fake_ai.queue_response(_generation_response(8))
+    newer = assessment_service.start_assessment(db_session, fake_ai, track.id)
+    newer.status = "completed"
+    db_session.commit()
+
+    latest = assessment_service.get_latest_completed_assessment(db_session, track.id)
+
+    assert latest.id == newer.id
+
+
+def test_get_latest_completed_assessment_ignores_in_progress_and_returns_none(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(8))
+    assessment_service.start_assessment(db_session, fake_ai, track.id)  # stays in_progress
+
+    latest = assessment_service.get_latest_completed_assessment(db_session, track.id)
+
+    assert latest is None
+
+
 def test_submit_skips_ai_call_when_no_descriptive_answers_given(db_session, fake_ai):
     assessment = _start_with_mix(db_session, fake_ai)
     # Answer nothing at all.

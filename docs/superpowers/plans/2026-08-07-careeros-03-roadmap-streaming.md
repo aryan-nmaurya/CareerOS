@@ -1221,11 +1221,358 @@ a non-empty module list for the first phase — proving the full chain (prompt �
 streaming client → parser) works against the live API before it's wired into a
 route.
 
+**Status: attempted twice on 2026-08-08, both `429 RESOURCE_EXHAUSTED`.** The
+violation detail is `GenerateRequestsPerDayPerProjectPerModel-FreeTier`,
+`quotaValue: 20` — a genuine per-day cap, not a short rate window, so the
+`retryDelay` the API suggests (~30-60s) is misleading for this specific
+exhaustion; retrying inside that window fails again with the same code, only
+the countdown changes. Confirmed by waiting out one full suggested delay and
+retrying once for real, which still 429'd. **Do not loop-retry this** — it
+won't succeed until the daily quota window resets (unknown exact time; likely
+midnight in whatever timezone Google's free-tier meter uses). Whoever has
+quota available next is the one who actually discharges this step and Task
+4's schema-fix caveat together in one run.
+
 - [ ] **Step 7: Commit**
 
 ```bash
 git add backend/ai/client.py backend/ai/gemini_client.py backend/tests/test_ai_client.py
 git commit -m "feat(backend): add streaming support to the AI client"
+```
+
+---
+
+## Task 6: Roadmap service — stream orchestration
+
+**Files:**
+- Create: `backend/services/roadmap_service.py`
+- Modify: `backend/services/assessment_service.py` (add `get_latest_completed_assessment`)
+- Test: `backend/tests/test_roadmap_service.py`
+- Modify: `backend/tests/test_assessment_service.py` (2 tests for the new lookup)
+
+`stream_roadmap` is the generator the router will iterate to produce SSE.
+Entirely testable against `FakeAIClient.queue_stream` — no live API needed,
+which matters right now since Task 5's live check is blocked on quota. It
+persists `Roadmap`/`RoadmapPhase`/`RoadmapModule` rows via `db.add()` +
+`db.flush()` as each event arrives (assigning ids for FKs without committing),
+then commits exactly once at the end — or rolls back the whole thing if the
+stream fails, comes back with zero phases, or a phase somehow arrives before
+the roadmap's own meta record (unreachable given the schema, per Task 4's
+note that `phases` is always last, but guarded rather than left to crash).
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `backend/tests/test_roadmap_service.py`:
+
+```python
+from datetime import datetime
+
+from ai.errors import AIUnavailable
+from models.assessment import Assessment
+from models.roadmap import Roadmap
+from schemas.profile import ProfileCreate, TrackCreate
+from services import profile_service
+from services.roadmap_service import stream_roadmap
+
+_HAPPY_CHUNKS = [
+    '{"title": "Python Roadmap", "summary": "From zero to functional scripts.", ',
+    '"total_weeks": 4, "weekly_hours": 5, ',
+    '"weekly_goals": [{"week": 1, "goal": "Learn syntax", "phase_order": 0}], ',
+    '"final_project": {"title": "CLI Tool", "description": "Build a CLI", "skills_demonstrated": ["cli"]}, ',
+    '"phases": [',
+    '{"title": "Foundations", "description": "The basics.", "goal": "Write simple scripts.", '
+    '"estimated_hours": 10, "modules": [',
+    '{"title": "Variables", "description": "Learn variables.", "lessons": ["l1"], "exercises": ["e1"], ',
+    '"project": null, "estimated_hours": 3, "kind": "module"}',
+    ']}',
+    ']}',
+]
+
+
+def _track(db_session, level="beginner"):
+    profile_service.create_profile(db_session, ProfileCreate(name="Aryan"))
+    return profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level=level)
+    )
+
+
+def _raising_stream(chunks, exc):
+    yield from chunks
+    raise exc
+
+
+def test_stream_roadmap_persists_meta_and_phases_and_yields_matching_events(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+
+    events = list(stream_roadmap(db_session, fake_ai, track.id))
+
+    assert [e for e, _ in events] == ["meta", "phase", "done"]
+    roadmap = db_session.query(Roadmap).filter_by(track_id=track.id).one()
+    assert roadmap.title == "Python Roadmap"
+    assert roadmap.assessment_id is None
+    assert len(roadmap.phases) == 1
+    assert roadmap.phases[0].title == "Foundations"
+    assert len(roadmap.phases[0].modules) == 1
+    assert roadmap.phases[0].modules[0].title == "Variables"
+    assert roadmap.phases[0].modules[0].kind == "module"
+    _, done_data = events[2]
+    assert done_data["roadmap_id"] == roadmap.id
+
+
+def test_stream_roadmap_beginner_path_skips_assessment_lookup(db_session, fake_ai):
+    track = _track(db_session, level="beginner")
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+
+    list(stream_roadmap(db_session, fake_ai, track.id))
+
+    assert "zero prior knowledge" in fake_ai.stream_calls[0].user_content.lower()
+
+
+def test_stream_roadmap_intermediate_path_uses_latest_completed_assessment(db_session, fake_ai):
+    track = _track(db_session, level="intermediate")
+    assessment = Assessment(
+        track_id=track.id,
+        level="intermediate",
+        status="completed",
+        completed_at=datetime(2026, 1, 1),
+        strengths=["loops"],
+        weaknesses=["oop"],
+    )
+    db_session.add(assessment)
+    db_session.commit()
+    fake_ai.queue_stream(_HAPPY_CHUNKS)
+
+    list(stream_roadmap(db_session, fake_ai, track.id))
+
+    assert "loops" in fake_ai.stream_calls[0].user_content
+    assert "oop" in fake_ai.stream_calls[0].user_content
+    roadmap = db_session.query(Roadmap).filter_by(track_id=track.id).one()
+    assert roadmap.assessment_id == assessment.id
+
+
+def test_stream_roadmap_unknown_track_yields_error_and_makes_no_ai_call(db_session, fake_ai):
+    events = list(stream_roadmap(db_session, fake_ai, 999))
+
+    assert len(events) == 1
+    event, data = events[0]
+    assert event == "error"
+    assert data["code"] == "track_not_found"
+    assert fake_ai.stream_calls == []
+
+
+def test_stream_roadmap_rejects_stream_with_no_phases_and_rolls_back(db_session, fake_ai):
+    track = _track(db_session)
+    no_phase_chunks = [
+        '{"title": "T", "summary": "S", "total_weeks": 1, "weekly_hours": 1, ',
+        '"weekly_goals": [], "final_project": {"title": "F", "description": "D", "skills_demonstrated": []}, ',
+        '"phases": []}',
+    ]
+    fake_ai.queue_stream(no_phase_chunks)
+
+    events = list(stream_roadmap(db_session, fake_ai, track.id))
+
+    assert [e for e, _ in events] == ["meta", "error"]
+    assert events[1][1]["code"] == "ai_invalid_response"
+    assert db_session.query(Roadmap).filter_by(track_id=track.id).count() == 0
+
+
+def test_stream_roadmap_rolls_back_everything_on_mid_stream_ai_failure(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_stream(_raising_stream(_HAPPY_CHUNKS[:9], AIUnavailable("boom")))
+
+    events = list(stream_roadmap(db_session, fake_ai, track.id))
+
+    assert [e for e, _ in events] == ["meta", "phase", "error"]
+    assert events[2][1]["code"] == "ai_unavailable"
+    assert db_session.query(Roadmap).filter_by(track_id=track.id).count() == 0
+```
+
+Append to `backend/tests/test_assessment_service.py`:
+
+```python
+def test_get_latest_completed_assessment_returns_most_recent(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(8))
+    older = assessment_service.start_assessment(db_session, fake_ai, track.id)
+    older.status = "completed"
+    older.completed_at = None
+    db_session.commit()
+
+    fake_ai.queue_response(_generation_response(8))
+    newer = assessment_service.start_assessment(db_session, fake_ai, track.id)
+    newer.status = "completed"
+    db_session.commit()
+
+    latest = assessment_service.get_latest_completed_assessment(db_session, track.id)
+
+    assert latest.id == newer.id
+
+
+def test_get_latest_completed_assessment_ignores_in_progress_and_returns_none(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(8))
+    assessment_service.start_assessment(db_session, fake_ai, track.id)  # stays in_progress
+
+    latest = assessment_service.get_latest_completed_assessment(db_session, track.id)
+
+    assert latest is None
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd backend && .venv/bin/pytest tests/test_roadmap_service.py tests/test_assessment_service.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'services.roadmap_service'`
+
+- [ ] **Step 3: Add `get_latest_completed_assessment` to `backend/services/assessment_service.py`**
+
+Add near `list_assessments`:
+
+```python
+def get_latest_completed_assessment(db: Session, track_id: int) -> Assessment | None:
+    return db.scalars(
+        select(Assessment)
+        .where(Assessment.track_id == track_id, Assessment.status == "completed")
+        .order_by(Assessment.started_at.desc(), Assessment.id.desc())
+    ).first()
+```
+
+- [ ] **Step 4: Write `backend/services/roadmap_service.py`**
+
+```python
+from __future__ import annotations
+
+from typing import Iterator
+
+from sqlalchemy.orm import Session
+
+from ai.client import AIClient
+from ai.errors import AIInvalidResponse, AIUnavailable
+from ai.prompts.roadmap import build_roadmap_prompt
+from ai.stream_parser import PhaseStreamParser
+from models.roadmap import Roadmap, RoadmapModule, RoadmapPhase
+from services import assessment_service, profile_service
+from services.profile_service import TrackNotFoundError
+
+StreamEvent = tuple[str, dict]
+
+
+def stream_roadmap(db: Session, ai_client: AIClient, track_id: int) -> Iterator[StreamEvent]:
+    """Drives PhaseStreamParser over a live Gemini stream, persisting
+    Roadmap/RoadmapPhase/RoadmapModule rows as events arrive inside one
+    uncommitted transaction. Commits once, only if at least one phase
+    actually arrived; rolls back on any AI failure or an empty result.
+    Yields SSE-ready (event, data) tuples — the router owns HTTP framing.
+    """
+    try:
+        track = profile_service.get_track(db, track_id)
+    except TrackNotFoundError:
+        yield ("error", {"code": "track_not_found", "message": "That learning track does not exist."})
+        return
+
+    assessment = None
+    if track.experience_level != "beginner":
+        assessment = assessment_service.get_latest_completed_assessment(db, track.id)
+
+    prompt = build_roadmap_prompt(track.topic, track.experience_level, assessment)
+    parser = PhaseStreamParser()
+    roadmap: Roadmap | None = None
+    phase_count = 0
+
+    try:
+        for chunk in ai_client.generate_json_stream(prompt):
+            for event, data in parser.feed(chunk):
+                if event == "meta":
+                    roadmap = Roadmap(
+                        track_id=track.id,
+                        assessment_id=assessment.id if assessment else None,
+                        title=data["title"],
+                        summary=data["summary"],
+                        total_weeks=data["total_weeks"],
+                        weekly_hours=data["weekly_hours"],
+                        weekly_goals=data.get("weekly_goals", []),
+                        final_project=data.get("final_project"),
+                    )
+                    db.add(roadmap)
+                    db.flush()
+                    yield ("meta", data)
+                elif event == "phase":
+                    if roadmap is None:
+                        db.rollback()
+                        yield (
+                            "error",
+                            {
+                                "code": "ai_invalid_response",
+                                "message": "Phase arrived before roadmap metadata.",
+                            },
+                        )
+                        return
+                    phase = RoadmapPhase(
+                        roadmap_id=roadmap.id,
+                        order_index=phase_count,
+                        title=data["title"],
+                        description=data.get("description", ""),
+                        goal=data["goal"],
+                        estimated_hours=data.get("estimated_hours", 0),
+                    )
+                    db.add(phase)
+                    db.flush()
+                    for m_index, module in enumerate(data.get("modules", [])):
+                        db.add(
+                            RoadmapModule(
+                                phase_id=phase.id,
+                                order_index=m_index,
+                                title=module["title"],
+                                description=module.get("description", ""),
+                                lessons=module.get("lessons", []),
+                                exercises=module.get("exercises", []),
+                                project=module.get("project"),
+                                estimated_hours=module.get("estimated_hours", 0),
+                                kind=module.get("kind", "module"),
+                            )
+                        )
+                    phase_count += 1
+                    yield (
+                        "phase",
+                        {
+                            "order_index": phase.order_index,
+                            "title": phase.title,
+                            "modules": data.get("modules", []),
+                        },
+                    )
+    except AIUnavailable as exc:
+        db.rollback()
+        yield ("error", {"code": "ai_unavailable", "message": str(exc)})
+        return
+    except AIInvalidResponse as exc:
+        db.rollback()
+        yield ("error", {"code": "ai_invalid_response", "message": str(exc)})
+        return
+
+    if roadmap is None or phase_count == 0:
+        db.rollback()
+        yield ("error", {"code": "ai_invalid_response", "message": "No phases were generated."})
+        return
+
+    db.commit()
+    yield ("done", {"roadmap_id": roadmap.id})
+```
+
+- [ ] **Step 5: Run tests to verify they pass**
+
+Run: `cd backend && .venv/bin/pytest tests/test_roadmap_service.py tests/test_assessment_service.py -v`
+Expected: PASS — `6 passed` (roadmap_service) and `2 passed` (assessment_service additions)
+
+- [ ] **Step 6: Run the full backend suite**
+
+Run: `cd backend && .venv/bin/pytest -v`
+Expected: PASS — `104 passed` (96 before this task + 6 + 2)
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add backend/services/roadmap_service.py backend/services/assessment_service.py backend/tests/test_roadmap_service.py backend/tests/test_assessment_service.py
+git commit -m "feat(backend): add roadmap service with streaming persistence and rollback"
 ```
 
 ---

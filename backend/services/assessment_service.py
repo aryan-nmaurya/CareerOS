@@ -84,6 +84,14 @@ def list_assessments(db: Session) -> list[Assessment]:
     )
 
 
+def get_latest_completed_assessment(db: Session, track_id: int) -> Assessment | None:
+    return db.scalars(
+        select(Assessment)
+        .where(Assessment.track_id == track_id, Assessment.status == "completed")
+        .order_by(Assessment.started_at.desc(), Assessment.id.desc())
+    ).first()
+
+
 def save_answer(db: Session, assessment_id: int, payload: AnswerSave) -> None:
     assessment = get_assessment(db, assessment_id)
     if assessment.status == "completed":
