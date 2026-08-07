@@ -6,11 +6,41 @@ os.environ["DATABASE_URL"] = "sqlite://"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy.orm import sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
 
+from db.base import Base  # noqa: E402
+from db.session import get_db  # noqa: E402
 from main import app  # noqa: E402
+from models import user as _user_models  # noqa: E402,F401  registers tables
 
 
 @pytest.fixture()
-def client():
+def db_session():
+    """A fresh in-memory database per test.
+
+    StaticPool keeps every connection pointed at the same :memory: database —
+    without it each new connection would get its own empty one.
+    """
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=test_engine)
+    TestingSession = sessionmaker(bind=test_engine, autoflush=False, autocommit=False)
+    session = TestingSession()
+    try:
+        yield session
+    finally:
+        session.close()
+        test_engine.dispose()
+
+
+@pytest.fixture()
+def client(db_session):
+    app.dependency_overrides[get_db] = lambda: db_session
     with TestClient(app) as test_client:
         yield test_client
+    app.dependency_overrides.clear()
