@@ -10,7 +10,7 @@ from ai.client import AIClient
 from ai.errors import AIInvalidResponse
 from ai.prompts.assessment import build_generation_prompt, build_grading_prompt
 from models.assessment import Assessment, AssessmentQuestion
-from schemas.assessment import AnswerSave
+from schemas.assessment import AnswerSave, AssessmentOut, AssessmentQuestionOut
 from services import profile_service
 
 
@@ -198,3 +198,41 @@ def submit_assessment(db: Session, ai_client: AIClient, assessment_id: int) -> A
     db.commit()
     db.refresh(assessment)
     return assessment
+
+
+def _question_out(question: AssessmentQuestion, reveal: bool) -> AssessmentQuestionOut:
+    return AssessmentQuestionOut(
+        id=question.id,
+        order_index=question.order_index,
+        type=question.type,
+        topic_tag=question.topic_tag,
+        question=question.question,
+        options=question.options,
+        correct_option=question.correct_option if reveal else None,
+        expected_points=question.expected_points if reveal else None,
+        user_answer=question.user_answer,
+        score=question.score,
+        ai_feedback=question.ai_feedback,
+    )
+
+
+def to_assessment_out(assessment: Assessment) -> AssessmentOut:
+    """The only place that decides what a client is allowed to see. Options
+    (the 4 mcq choices) are always visible — a question is unanswerable
+    without them. The answer key (correct_option, expected_points) is only
+    revealed once the assessment is completed."""
+    reveal = assessment.status == "completed"
+    return AssessmentOut(
+        id=assessment.id,
+        track_id=assessment.track_id,
+        level=assessment.level,
+        status=assessment.status,
+        started_at=assessment.started_at,
+        completed_at=assessment.completed_at,
+        score=assessment.score,
+        estimated_level=assessment.estimated_level,
+        strengths=assessment.strengths,
+        weaknesses=assessment.weaknesses,
+        summary=assessment.summary,
+        questions=[_question_out(q, reveal) for q in assessment.questions],
+    )
