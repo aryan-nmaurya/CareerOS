@@ -5,7 +5,7 @@ from config import settings
 from db.base import Base
 from db.session import engine
 from models import user as _user_models  # noqa: F401  registers tables on Base
-from routers import health
+from routers import health, profile, tracks
 
 
 def create_app() -> FastAPI:
@@ -22,6 +22,8 @@ def create_app() -> FastAPI:
     Base.metadata.create_all(bind=engine)
 
     app.include_router(health.router)
+    app.include_router(profile.router)
+    app.include_router(tracks.router)
     return app
 
 
