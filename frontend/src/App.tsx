@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
 import { useProfile } from "@/hooks/useProfile";
+import AssessmentPage from "@/pages/AssessmentPage";
 import DashboardPage from "@/pages/DashboardPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import SettingsPage from "@/pages/SettingsPage";
@@ -36,6 +37,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/onboarding" element={<OnboardingPage />} />
+      <Route path="/assessment/:id" element={<AssessmentPage />} />
       <Route path="/" element={<DashboardPage />} />
       <Route path="/roadmap" element={<Placeholder title="Roadmap" />} />
       <Route path="/interview" element={<Placeholder title="Interviews" />} />
