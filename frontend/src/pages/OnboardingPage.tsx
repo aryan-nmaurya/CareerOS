@@ -6,6 +6,7 @@ import { LevelStep } from "@/components/onboarding/LevelStep";
 import { NameStep } from "@/components/onboarding/NameStep";
 import { TopicStep } from "@/components/onboarding/TopicStep";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { useStartAssessment } from "@/hooks/useAssessment";
 import { useCreateProfile, useCreateTrack, useProfile } from "@/hooks/useProfile";
 import { cn } from "@/lib/cn";
 import type { ExperienceLevel } from "@/types";
@@ -15,6 +16,7 @@ export default function OnboardingPage() {
   const { data: profile } = useProfile();
   const createProfile = useCreateProfile();
   const createTrack = useCreateTrack();
+  const startAssessment = useStartAssessment();
 
   // If a profile already exists we are here to add a track, not to re-onboard.
   const [step, setStep] = useState(profile ? 1 : 0);
@@ -31,9 +33,25 @@ export default function OnboardingPage() {
   };
 
   const handleLevel = async (level: ExperienceLevel) => {
-    await createTrack.mutateAsync({ topic, experienceLevel: level });
-    navigate("/", { replace: true });
+    try {
+      const track = await createTrack.mutateAsync({ topic, experienceLevel: level });
+      if (level === "beginner") {
+        navigate("/", { replace: true });
+        return;
+      }
+      const assessment = await startAssessment.mutateAsync(track.id);
+      navigate(`/assessment/${assessment.id}`, { replace: true });
+    } catch {
+      // Surfaced via createTrack.error / startAssessment.error below —
+      // nothing further to do here.
+    }
   };
+
+  const pending = createTrack.isPending || startAssessment.isPending;
+  const pendingLabel = startAssessment.isPending
+    ? "Generating your assessment — this can take up to 30 seconds…"
+    : "Setting up your track…";
+  const errorMessage = createTrack.error?.message ?? startAssessment.error?.message;
 
   return (
     <div className="min-h-dvh bg-bg">
@@ -70,7 +88,9 @@ export default function OnboardingPage() {
             {step === 2 && (
               <LevelStep
                 topic={topic}
-                pending={createTrack.isPending}
+                pending={pending}
+                pendingLabel={pendingLabel}
+                errorMessage={errorMessage}
                 onSelect={handleLevel}
               />
             )}

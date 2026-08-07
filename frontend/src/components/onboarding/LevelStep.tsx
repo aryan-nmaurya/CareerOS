@@ -7,10 +7,18 @@ import type { ExperienceLevel } from "@/types";
 interface LevelStepProps {
   topic: string;
   pending: boolean;
+  pendingLabel: string;
+  errorMessage?: string;
   onSelect: (level: ExperienceLevel) => void;
 }
 
-export function LevelStep({ topic, pending, onSelect }: LevelStepProps) {
+export function LevelStep({
+  topic,
+  pending,
+  pendingLabel,
+  errorMessage,
+  onSelect,
+}: LevelStepProps) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -37,17 +45,19 @@ export function LevelStep({ topic, pending, onSelect }: LevelStepProps) {
             )}
           >
             <span className="block font-semibold text-text-primary">{label}</span>
-            <span className="mt-1 block text-sm text-text-secondary">
-              {description}
-            </span>
+            <span className="mt-1 block text-sm text-text-secondary">{description}</span>
           </button>
         ))}
       </div>
 
       {pending && (
         <p className="flex items-center gap-2 text-sm text-text-secondary">
-          <Loader2 className="size-4 animate-spin" /> Setting up your track…
+          <Loader2 className="size-4 animate-spin" /> {pendingLabel}
         </p>
+      )}
+
+      {errorMessage && !pending && (
+        <p className="text-sm text-danger">{errorMessage} — pick a level again to retry.</p>
       )}
     </div>
   );
