@@ -1,7 +1,12 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Loader2 } from "lucide-react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
+import { useProfile } from "@/hooks/useProfile";
+import DashboardPage from "@/pages/DashboardPage";
+import OnboardingPage from "@/pages/OnboardingPage";
+import SettingsPage from "@/pages/SettingsPage";
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -12,12 +17,29 @@ function Placeholder({ title }: { title: string }) {
 }
 
 export default function App() {
+  const { data: profile, isPending } = useProfile();
+  const location = useLocation();
+
+  if (isPending) {
+    return (
+      <div className="grid min-h-dvh place-items-center bg-bg">
+        <Loader2 className="size-6 animate-spin text-text-muted" />
+      </div>
+    );
+  }
+
+  // No profile means onboarding is the only reachable screen.
+  if (!profile && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   return (
     <Routes>
-      <Route path="/" element={<Placeholder title="Dashboard" />} />
+      <Route path="/onboarding" element={<OnboardingPage />} />
+      <Route path="/" element={<DashboardPage />} />
       <Route path="/roadmap" element={<Placeholder title="Roadmap" />} />
       <Route path="/interview" element={<Placeholder title="Interviews" />} />
-      <Route path="/settings" element={<Placeholder title="Settings" />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
