@@ -75,3 +75,76 @@ def test_update_profile_leaves_omitted_fields_untouched(db_session):
 def test_update_profile_without_onboarding_raises(db_session):
     with pytest.raises(ProfileNotFoundError):
         profile_service.update_profile(db_session, ProfileUpdate(name="Ghost"))
+
+
+from schemas.profile import TrackCreate
+from services.profile_service import TrackNotFoundError
+
+
+def _onboard(db_session):
+    return profile_service.create_profile(db_session, ProfileCreate(name="Aryan"))
+
+
+def test_create_track_is_active_by_default(db_session):
+    _onboard(db_session)
+
+    track = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+
+    assert track.is_active is True
+    assert profile_service.get_active_track(db_session).id == track.id
+
+
+def test_creating_a_second_track_deactivates_the_first(db_session):
+    _onboard(db_session)
+    first = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+
+    second = profile_service.create_track(
+        db_session, TrackCreate(topic="React", experience_level="intermediate")
+    )
+
+    db_session.refresh(first)
+    assert first.is_active is False
+    assert second.is_active is True
+    active = [t for t in profile_service.list_tracks(db_session) if t.is_active]
+    assert len(active) == 1
+
+
+def test_activate_track_switches_the_active_one(db_session):
+    _onboard(db_session)
+    first = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+    profile_service.create_track(
+        db_session, TrackCreate(topic="React", experience_level="intermediate")
+    )
+
+    reactivated = profile_service.activate_track(db_session, first.id)
+
+    assert reactivated.is_active is True
+    active = [t for t in profile_service.list_tracks(db_session) if t.is_active]
+    assert len(active) == 1
+    assert active[0].id == first.id
+
+
+def test_activate_unknown_track_raises(db_session):
+    _onboard(db_session)
+
+    with pytest.raises(TrackNotFoundError):
+        profile_service.activate_track(db_session, 4242)
+
+
+def test_create_track_without_profile_raises(db_session):
+    with pytest.raises(ProfileNotFoundError):
+        profile_service.create_track(
+            db_session, TrackCreate(topic="Python", experience_level="beginner")
+        )
+
+
+def test_get_active_track_returns_none_when_no_tracks(db_session):
+    _onboard(db_session)
+
+    assert profile_service.get_active_track(db_session) is None
