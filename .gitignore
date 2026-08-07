@@ -22,3 +22,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Claude Code session-local state (launch.json is intentionally tracked)
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

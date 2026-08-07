@@ -23,12 +23,23 @@ _MODULE_SCHEMA = {
                 "title": {"type": "STRING"},
                 "description": {"type": "STRING"},
             },
+            "required": ["title", "description"],
             "nullable": True,
         },
         "estimated_hours": {"type": "INTEGER"},
         "kind": {"type": "STRING", "enum": ["module", "checkpoint", "milestone", "project"]},
     },
-    "required": ["title", "description", "lessons", "exercises", "estimated_hours", "kind"],
+    # every property listed here on purpose, including "project" — see the
+    # header note on this file's required-list history.
+    "required": [
+        "title",
+        "description",
+        "lessons",
+        "exercises",
+        "project",
+        "estimated_hours",
+        "kind",
+    ],
 }
 
 _PHASE_SCHEMA = {
@@ -40,7 +51,7 @@ _PHASE_SCHEMA = {
         "estimated_hours": {"type": "INTEGER"},
         "modules": {"type": "ARRAY", "min_items": 2, "max_items": 8, "items": _MODULE_SCHEMA},
     },
-    "required": ["title", "goal", "modules"],
+    "required": ["title", "description", "goal", "estimated_hours", "modules"],
 }
 
 _ROADMAP_SCHEMA = {

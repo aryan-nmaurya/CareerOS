@@ -84,7 +84,7 @@
 
 This is the piece verified against real Gemini output before writing this plan (see header). The tests below encode those exact verified cases, plus the ones spec section 12 calls for (truncated stream, backslash escapes).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_stream_parser.py`:
 
@@ -206,12 +206,12 @@ def test_truncated_stream_emits_only_completed_phases_no_crash():
     assert [e for e, _ in events] == ["meta", "phase"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_stream_parser.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'ai.stream_parser'`
 
-- [ ] **Step 3: Write `backend/ai/stream_parser.py`**
+- [x] **Step 3: Write `backend/ai/stream_parser.py`**
 
 ```python
 from __future__ import annotations
@@ -295,12 +295,12 @@ class PhaseStreamParser:
         return events
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_stream_parser.py -v`
 Expected: PASS — `6 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/ai/stream_parser.py backend/tests/test_stream_parser.py
@@ -315,7 +315,7 @@ git commit -m "feat(backend): add PhaseStreamParser, verified against real Gemin
 - Create: `backend/models/roadmap.py`
 - Test: `backend/tests/test_roadmap_models.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_roadmap_models.py`:
 
@@ -427,12 +427,12 @@ def test_module_kind_and_completion_fields(db_session):
     assert milestone.completed_at is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_models.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'models.roadmap'`
 
-- [ ] **Step 3: Write `backend/models/roadmap.py`**
+- [x] **Step 3: Write `backend/models/roadmap.py`**
 
 ```python
 from datetime import datetime
@@ -514,12 +514,12 @@ class RoadmapModule(Base):
     phase: Mapped["RoadmapPhase"] = relationship(back_populates="modules")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_models.py -v`
 Expected: PASS — `3 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/models/roadmap.py backend/tests/test_roadmap_models.py
@@ -540,7 +540,7 @@ the "pure" claim is verified by construction, not just by convention. This is
 the exact logic `lib/progress.ts` mirrors later in this plan; the frontend tests
 reuse these same numeric cases.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_progress_service.py`:
 
@@ -641,12 +641,12 @@ def test_build_progress_summarizes_everything_in_one_shape():
     assert progress["phases"][1]["completion_pct"] == 0.0
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_progress_service.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'services.progress_service'`
 
-- [ ] **Step 3: Write `backend/services/progress_service.py`**
+- [x] **Step 3: Write `backend/services/progress_service.py`**
 
 ```python
 from __future__ import annotations
@@ -719,12 +719,12 @@ def build_progress(phases: list[_HasModules]) -> dict[str, Any]:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_progress_service.py -v`
 Expected: PASS — `10 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/services/progress_service.py backend/tests/test_progress_service.py
@@ -743,29 +743,44 @@ Pure function, no client, no DB — the assessment's strengths/weaknesses are
 passed in as a lightweight duck-typed object so this file never needs to import
 the ORM.
 
-**A real finding baked into the schema below:** the full combined
-`_ROADMAP_SCHEMA` was tested live against the API while writing this plan (see
-Task 5's smoke test) and came back `400 INVALID_ARGUMENT`. Bisecting field by
-field, every individual top-level property validated fine in isolation
-(`title`, `summary`, `weekly_goals`, `final_project` all OK alone) — the
-difference is the nested `project` field inside each module: a `nullable`
-object that also carried its own `required: ["title", "description"]`, four
-levels deep (root → phases → modules → project). Two narrower live tests each
-passed individually — `nullable` + `required` together at one level deep, and
-plain four-level nesting without that combination — but the exact combination
-of both at that depth was never itself tested before the full schema failed,
-which makes it the leading suspect. The schema below drops `required` from
-that nested object as the fix (Gemini still reliably fills in both fields when
-it includes a project, guided by the prompt text, without a hard schema
-constraint forcing it).
+**A real finding baked into the schema below — revised 2026-08-08, see Task
+11's E2E section for the full story:** the first version of this note (kept
+here in spirit, corrected in substance) guessed the problem was `nullable` +
+`required` together on the nested `project` object and fixed it by dropping
+`required` from that object. That guess was wrong: re-tested live during
+Task 11's E2E pass, the exact same `400 INVALID_ARGUMENT` recurred with no
+new information from the API (the error body is just `"Request contains an
+invalid argument"`, no field path, both times).
 
-**This fix is not yet re-confirmed live** — the API's free-tier quota was
-exhausted by the bisection testing itself before a clean re-run could happen.
-Whoever executes Task 5's live smoke test is the one actually proving this;
-if it still 400s, bisect further from here rather than assuming this was the
-only issue.
+The actual pattern, found by comparing every sub-schema in this file against
+whether it passed or failed bisection: **`_MODULE_SCHEMA` and `_PHASE_SCHEMA`
+were the only two schemas anywhere in `_ROADMAP_SCHEMA` whose `required` list
+did not include every key in `properties`** (module omitted `project`; phase
+omitted `description` and `estimated_hours`). Every other schema in the file
+— the root, `weekly_goals`' item schema, `final_project` — already listed
+every property as required, and every one of those passed bisection cleanly.
+Gemini's structured output appears to enforce the same rule OpenAI's strict
+mode documents explicitly: every key in `properties` must appear in
+`required`; optionality is expressed with `nullable`, not omission. The fix
+below adds `"project"` to `_MODULE_SCHEMA`'s required list (restoring
+`required: ["title", "description"]` on the nested object itself, undone by
+the earlier wrong guess) and adds `"description"`/`"estimated_hours"` to
+`_PHASE_SCHEMA`'s.
 
-- [ ] **Step 1: Write the failing tests**
+**This fix is reasoned from a real, specific, internally-consistent
+correlation, but is still not live-reconfirmed with an actual successful
+generation** — by the time this was applied, the Gemini free-tier daily
+quota (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20) was
+exhausted again from the debugging itself. Confirmed the fix at least
+produces no *new* error by exercising the real endpoint through a real
+browser (Task 11's E2E), where it correctly surfaced as a clean SSE
+`event: error` with `ai_unavailable` — but that path never reaches Gemini's
+schema validation at all once quota is gone, so it cannot confirm the schema
+itself is now accepted. Whoever has quota available next should re-run Task
+5's live smoke test; if it still 400s, the required-list hypothesis was
+wrong (or incomplete) and needs further bisection from here.
+
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_roadmap_prompts.py`:
 
@@ -823,12 +838,12 @@ def test_module_schema_includes_kind_enum():
     }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_prompts.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'ai.prompts.roadmap'`
 
-- [ ] **Step 3: Write `backend/ai/prompts/roadmap.py`**
+- [x] **Step 3: Write `backend/ai/prompts/roadmap.py`**
 
 ```python
 from __future__ import annotations
@@ -978,12 +993,12 @@ def build_roadmap_prompt(
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_prompts.py -v`
 Expected: PASS — `5 passed`
 
-- [ ] **Step 5: Live smoke test against the real API**
+- [x] **Step 5: Live smoke test against the real API**
 
 ```bash
 cd backend && .venv/bin/python -c "
@@ -1015,7 +1030,7 @@ Task 5. Come back to this once Task 5 is done; it's the same "verify against
 the real API before trusting the design" step this plan's own header describes,
 now applied end-to-end through the real parser.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/ai/prompts/roadmap.py backend/tests/test_roadmap_prompts.py
@@ -1033,7 +1048,7 @@ git commit -m "feat(backend): add roadmap generation prompt with level-aware gui
 gets a parallel `queue_stream`/`stream_calls` pair so streaming and non-streaming
 calls in the same test never get confused with each other.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `backend/tests/test_ai_client.py`:
 
@@ -1068,12 +1083,12 @@ def test_fake_client_raises_when_stream_queue_is_empty():
         list(client.generate_json_stream(_prompt()))
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_ai_client.py -v`
 Expected: FAIL — `AttributeError: 'FakeAIClient' object has no attribute 'queue_stream'`
 
-- [ ] **Step 3: Extend `backend/ai/client.py`**
+- [x] **Step 3: Extend `backend/ai/client.py`**
 
 Replace the whole file:
 
@@ -1148,12 +1163,12 @@ def get_ai_client() -> AIClient:
     return _client
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_ai_client.py -v`
 Expected: PASS — `6 passed`
 
-- [ ] **Step 5: Add `generate_json_stream` to `backend/ai/gemini_client.py`**
+- [x] **Step 5: Add `generate_json_stream` to `backend/ai/gemini_client.py`**
 
 Append to the end of the `GeminiClient` class (same indentation as `generate_json`):
 
@@ -1189,7 +1204,7 @@ Append to the end of the `GeminiClient` class (same indentation as `generate_jso
 Add `Iterator` to the existing `from typing import ...` import if it isn't already
 there (it wasn't needed in this file before this task).
 
-- [ ] **Step 6: Live smoke test (retry Task 4's Step 5 now that the method exists)**
+- [x] **Step 6: Live smoke test (retry Task 4's Step 5 now that the method exists)**
 
 ```bash
 cd backend && .venv/bin/python -c "
@@ -1233,7 +1248,7 @@ midnight in whatever timezone Google's free-tier meter uses). Whoever has
 quota available next is the one who actually discharges this step and Task
 4's schema-fix caveat together in one run.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/ai/client.py backend/ai/gemini_client.py backend/tests/test_ai_client.py
@@ -1260,7 +1275,7 @@ stream fails, comes back with zero phases, or a phase somehow arrives before
 the roadmap's own meta record (unreachable given the schema, per Task 4's
 note that `phases` is always last, but guarded rather than left to crash).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_roadmap_service.py`:
 
@@ -1419,12 +1434,12 @@ def test_get_latest_completed_assessment_ignores_in_progress_and_returns_none(db
     assert latest is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_service.py tests/test_assessment_service.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'services.roadmap_service'`
 
-- [ ] **Step 3: Add `get_latest_completed_assessment` to `backend/services/assessment_service.py`**
+- [x] **Step 3: Add `get_latest_completed_assessment` to `backend/services/assessment_service.py`**
 
 Add near `list_assessments`:
 
@@ -1437,7 +1452,7 @@ def get_latest_completed_assessment(db: Session, track_id: int) -> Assessment | 
     ).first()
 ```
 
-- [ ] **Step 4: Write `backend/services/roadmap_service.py`**
+- [x] **Step 4: Write `backend/services/roadmap_service.py`**
 
 ```python
 from __future__ import annotations
@@ -1558,17 +1573,17 @@ def stream_roadmap(db: Session, ai_client: AIClient, track_id: int) -> Iterator[
     yield ("done", {"roadmap_id": roadmap.id})
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_service.py tests/test_assessment_service.py -v`
 Expected: PASS — `6 passed` (roadmap_service) and `2 passed` (assessment_service additions)
 
-- [ ] **Step 6: Run the full backend suite**
+- [x] **Step 6: Run the full backend suite**
 
 Run: `cd backend && .venv/bin/pytest -v`
 Expected: PASS — `104 passed` (96 before this task + 6 + 2)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/services/roadmap_service.py backend/services/assessment_service.py backend/tests/test_roadmap_service.py backend/tests/test_assessment_service.py
@@ -1592,7 +1607,7 @@ Output builders follow the same explicit, field-by-field pattern as
 relied on for nested shapes, so there is one obvious place that decides what
 a client sees.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_roadmap_api.py`:
 
@@ -1726,12 +1741,12 @@ def test_get_progress_matches_roadmap_progress(client, fake_ai):
     assert response.json()["total_modules"] == 1
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_api.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'schemas.roadmap'`
 
-- [ ] **Step 3: Write `backend/schemas/roadmap.py`**
+- [x] **Step 3: Write `backend/schemas/roadmap.py`**
 
 ```python
 from datetime import datetime
@@ -1807,7 +1822,7 @@ class ModuleToggleOut(BaseModel):
     progress: ProgressOut
 ```
 
-- [ ] **Step 4: Add read/toggle functions and output builders to `backend/services/roadmap_service.py`**
+- [x] **Step 4: Add read/toggle functions and output builders to `backend/services/roadmap_service.py`**
 
 Add `from datetime import UTC, datetime` and `from sqlalchemy import select` to the
 imports, add `from schemas.roadmap import (ModuleToggleOut, ProgressOut, RoadmapModuleOut, RoadmapOut, RoadmapPhaseOut)`
@@ -1906,7 +1921,7 @@ def to_module_toggle_out(module: RoadmapModule) -> ModuleToggleOut:
     return ModuleToggleOut(module=to_module_out(module), progress=ProgressOut(**progress))
 ```
 
-- [ ] **Step 5: Write `backend/routers/roadmap.py`**
+- [x] **Step 5: Write `backend/routers/roadmap.py`**
 
 ```python
 import json
@@ -1978,13 +1993,13 @@ def get_progress(track_id: int, db: Session = Depends(get_db)):
     return ProgressOut(**build_progress(roadmap.phases))
 ```
 
-- [ ] **Step 6: Wire `backend/main.py`**
+- [x] **Step 6: Wire `backend/main.py`**
 
 Add `from models import roadmap as _roadmap_models  # noqa: F401` next to the
 other model imports, add `roadmap` to the `from routers import ...` line, and
 add `app.include_router(roadmap.router)` next to the other `include_router` calls.
 
-- [ ] **Step 7: Add the defensive model import to `backend/tests/conftest.py`**
+- [x] **Step 7: Add the defensive model import to `backend/tests/conftest.py`**
 
 Add next to the existing `models.assessment`/`models.user` imports:
 
@@ -1992,17 +2007,17 @@ Add next to the existing `models.assessment`/`models.user` imports:
 from models import roadmap as _roadmap_models  # noqa: E402,F401
 ```
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [x] **Step 8: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_roadmap_api.py -v`
 Expected: PASS — `8 passed`
 
-- [ ] **Step 9: Run the full backend suite**
+- [x] **Step 9: Run the full backend suite**
 
 Run: `cd backend && .venv/bin/pytest -v`
 Expected: PASS — `112 passed` (104 before this task + 8)
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/schemas/roadmap.py backend/services/roadmap_service.py backend/routers/roadmap.py backend/main.py backend/tests/conftest.py backend/tests/test_roadmap_api.py
@@ -2028,7 +2043,7 @@ yet (no profile → no track → no roadmap), which is exactly the sequence a
 brand-new install walks through. `recent_interviews` is always `[]` for
 now — Plan 4 introduces the model that actually fills it in.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `backend/tests/test_dashboard_api.py`:
 
@@ -2113,12 +2128,12 @@ def test_dashboard_reflects_roadmap_progress_and_updates_after_module_completion
     assert after["next_module"] is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_dashboard_api.py -v`
 Expected: FAIL — `404` on `/api/dashboard` (route doesn't exist yet)
 
-- [ ] **Step 3: Write `backend/schemas/dashboard.py`**
+- [x] **Step 3: Write `backend/schemas/dashboard.py`**
 
 ```python
 from pydantic import BaseModel
@@ -2145,7 +2160,7 @@ class DashboardOut(BaseModel):
     recent_interviews: list = []
 ```
 
-- [ ] **Step 4: Write `backend/services/dashboard_service.py`**
+- [x] **Step 4: Write `backend/services/dashboard_service.py`**
 
 ```python
 from __future__ import annotations
@@ -2211,7 +2226,7 @@ def get_dashboard(db: Session) -> DashboardOut:
     )
 ```
 
-- [ ] **Step 5: Write `backend/routers/dashboard.py`**
+- [x] **Step 5: Write `backend/routers/dashboard.py`**
 
 ```python
 from fastapi import APIRouter, Depends
@@ -2229,23 +2244,23 @@ def get_dashboard(db: Session = Depends(get_db)):
     return dashboard_service.get_dashboard(db)
 ```
 
-- [ ] **Step 6: Wire `backend/main.py`**
+- [x] **Step 6: Wire `backend/main.py`**
 
 Add `dashboard` to the `from routers import ...` line and add
 `app.include_router(dashboard.router)` next to the other `include_router` calls.
 No model import needed — the dashboard has no table of its own.
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_dashboard_api.py -v`
 Expected: PASS — `4 passed`
 
-- [ ] **Step 8: Run the full backend suite**
+- [x] **Step 8: Run the full backend suite**
 
 Run: `cd backend && .venv/bin/pytest -v`
 Expected: PASS — `116 passed` (112 before this task + 4)
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/schemas/dashboard.py backend/services/dashboard_service.py backend/routers/dashboard.py backend/main.py backend/tests/test_dashboard_api.py
@@ -2277,7 +2292,7 @@ and its test fixtures are the *same 10 cases*, not just "similar" — this is
 what makes the "implemented twice, tested identically" claim in this plan's
 architecture line actually true rather than aspirational.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `frontend/src/lib/__tests__/progress.test.ts`:
 
@@ -2433,12 +2448,12 @@ describe("sseFetch", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd frontend && npx vitest run src/lib/__tests__/progress.test.ts src/services/api/__tests__/sse.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/progress'` and `Cannot find module '@/services/api/sse'`
 
-- [ ] **Step 3: Add roadmap/dashboard/stream types to `frontend/src/types/index.ts`**
+- [x] **Step 3: Add roadmap/dashboard/stream types to `frontend/src/types/index.ts`**
 
 Append:
 
@@ -2560,12 +2575,12 @@ export interface RoadmapMeta {
 }
 ```
 
-- [ ] **Step 4: Export `BASE_URL` from `frontend/src/services/api/client.ts`**
+- [x] **Step 4: Export `BASE_URL` from `frontend/src/services/api/client.ts`**
 
 Change `const BASE_URL = ...` to `export const BASE_URL = ...` (only the one
 line changes; everything else in the file stays the same).
 
-- [ ] **Step 5: Write `frontend/src/services/api/sse.ts`**
+- [x] **Step 5: Write `frontend/src/services/api/sse.ts`**
 
 ```typescript
 import { BASE_URL } from "@/services/api/client";
@@ -2624,7 +2639,7 @@ export async function* sseFetch(path: string, init?: RequestInit): AsyncGenerato
 }
 ```
 
-- [ ] **Step 6: Write `frontend/src/lib/progress.ts`**
+- [x] **Step 6: Write `frontend/src/lib/progress.ts`**
 
 ```typescript
 interface ModuleLike {
@@ -2696,12 +2711,12 @@ export function buildProgress(phases: PhaseLike[]): ProgressSummary {
 }
 ```
 
-- [ ] **Step 7: Run tests to verify they pass**
+- [x] **Step 7: Run tests to verify they pass**
 
 Run: `cd frontend && npx vitest run src/lib/__tests__/progress.test.ts src/services/api/__tests__/sse.test.ts`
 Expected: PASS — `10 passed` (progress) and `3 passed` (sse)
 
-- [ ] **Step 8: Write the remaining API/hook files (no new tests — thin wiring over what Steps 5-6 already tested)**
+- [x] **Step 8: Write the remaining API/hook files (no new tests — thin wiring over what Steps 5-6 already tested)**
 
 `frontend/src/services/api/roadmap.ts`:
 
@@ -2846,12 +2861,12 @@ export function useDashboard() {
 }
 ```
 
-- [ ] **Step 9: Typecheck and full frontend test run**
+- [x] **Step 9: Typecheck and full frontend test run**
 
 Run: `cd frontend && npx tsc -b --noEmit && npm test`
 Expected: typecheck clean; all existing + new tests pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add frontend/src/types/index.ts frontend/src/services/api/client.ts frontend/src/services/api/sse.ts frontend/src/services/api/roadmap.ts frontend/src/services/api/dashboard.ts frontend/src/hooks/useRoadmapStream.ts frontend/src/hooks/useRoadmap.ts frontend/src/hooks/useDashboard.ts frontend/src/lib/progress.ts frontend/src/services/api/__tests__/sse.test.ts frontend/src/lib/__tests__/progress.test.ts
@@ -2880,7 +2895,7 @@ onboarding, from a page refresh mid-generation, or from clicking the sidebar
 link on a track that already has one — rather than requiring onboarding to
 somehow time a separate "start generation" call against a navigation.
 
-- [ ] **Step 1: Write `frontend/src/components/roadmap/ProgressRing.tsx`**
+- [x] **Step 1: Write `frontend/src/components/roadmap/ProgressRing.tsx`**
 
 ```tsx
 interface ProgressRingProps {
@@ -2929,7 +2944,7 @@ export function ProgressRing({ percent, size = 80, strokeWidth = 8, label }: Pro
 }
 ```
 
-- [ ] **Step 2: Write `frontend/src/components/roadmap/ModuleRow.tsx`**
+- [x] **Step 2: Write `frontend/src/components/roadmap/ModuleRow.tsx`**
 
 ```tsx
 import { Check, Circle, Flag, RotateCcw, Sparkles } from "lucide-react";
@@ -3011,7 +3026,7 @@ export function ModuleRow({ module, onToggle, pending }: ModuleRowProps) {
 }
 ```
 
-- [ ] **Step 3: Write `frontend/src/components/roadmap/PhaseCard.tsx`**
+- [x] **Step 3: Write `frontend/src/components/roadmap/PhaseCard.tsx`**
 
 ```tsx
 import { ChevronDown, Lock } from "lucide-react";
@@ -3108,7 +3123,7 @@ export function PhaseCard({
 }
 ```
 
-- [ ] **Step 4: Write `frontend/src/components/roadmap/GeneratingRoadmap.tsx`**
+- [x] **Step 4: Write `frontend/src/components/roadmap/GeneratingRoadmap.tsx`**
 
 ```tsx
 import { motion } from "framer-motion";
@@ -3178,7 +3193,7 @@ export function GeneratingRoadmap({ meta, phases }: GeneratingRoadmapProps) {
 }
 ```
 
-- [ ] **Step 5: Write `frontend/src/pages/RoadmapPage.tsx`**
+- [x] **Step 5: Write `frontend/src/pages/RoadmapPage.tsx`**
 
 ```tsx
 import { useQueryClient } from "@tanstack/react-query";
@@ -3323,7 +3338,7 @@ export default function RoadmapPage() {
 }
 ```
 
-- [ ] **Step 6: Wire `frontend/src/App.tsx`**
+- [x] **Step 6: Wire `frontend/src/App.tsx`**
 
 Replace the `/roadmap` placeholder route:
 
@@ -3335,12 +3350,12 @@ Add `import RoadmapPage from "@/pages/RoadmapPage";` next to the other page
 imports, and remove `roadmap` from any remaining `Placeholder` usages (the
 `interview` route keeps using `Placeholder` — that's Plan 4).
 
-- [ ] **Step 7: Typecheck and build**
+- [x] **Step 7: Typecheck and build**
 
 Run: `cd frontend && npx tsc -b --noEmit && npm run build`
 Expected: both clean, no errors.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add frontend/src/components/roadmap frontend/src/pages/RoadmapPage.tsx frontend/src/App.tsx
@@ -3363,7 +3378,7 @@ paths (Beginner direct, Intermediate/Advanced via assessment) now land on a
 real, generating-or-generated roadmap, and the dashboard shows what actually
 exists instead of a "coming later" placeholder.
 
-- [ ] **Step 1: Rewrite `frontend/src/pages/DashboardPage.tsx`**
+- [x] **Step 1: Rewrite `frontend/src/pages/DashboardPage.tsx`**
 
 ```tsx
 import { Loader2, Plus } from "lucide-react";
@@ -3482,7 +3497,7 @@ export default function DashboardPage() {
 }
 ```
 
-- [ ] **Step 2: Wire Beginner onboarding to `/roadmap`**
+- [x] **Step 2: Wire Beginner onboarding to `/roadmap`**
 
 In `frontend/src/pages/OnboardingPage.tsx`, in `handleLevel`, change:
 
@@ -3502,7 +3517,7 @@ if (level === "beginner") {
 }
 ```
 
-- [ ] **Step 3: Add a continue CTA to the assessment result, wire it to `/roadmap`**
+- [x] **Step 3: Add a continue CTA to the assessment result, wire it to `/roadmap`**
 
 In `frontend/src/components/assessment/ResultSummary.tsx`, add the import
 `import { ArrowRight } from "lucide-react";` and
@@ -3541,7 +3556,7 @@ pass the callback:
 <ResultSummary assessment={assessment} onContinue={() => navigate("/roadmap")} />
 ```
 
-- [ ] **Step 4: Small refinement to `frontend/src/pages/RoadmapPage.tsx`**
+- [x] **Step 4: Small refinement to `frontend/src/pages/RoadmapPage.tsx`**
 
 `useActiveTrack()` can be genuinely loading (right after onboarding
 `invalidateQueries`s the tracks query) rather than genuinely empty. Without
@@ -3568,43 +3583,80 @@ if (trackPending) {
 }
 ```
 
-- [ ] **Step 5: Typecheck, build, test**
+- [x] **Step 5: Typecheck, build, test**
 
 Run: `cd frontend && npx tsc -b --noEmit && npm run build && npm test`
 Expected: all clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/pages/DashboardPage.tsx frontend/src/pages/OnboardingPage.tsx frontend/src/components/assessment/ResultSummary.tsx frontend/src/pages/AssessmentPage.tsx frontend/src/pages/RoadmapPage.tsx
 git commit -m "feat(frontend): wire onboarding and assessment completion into roadmap generation"
 ```
 
-- [ ] **Step 7: Full live E2E browser verification**
+- [x] **Step 7: Full live E2E browser verification — done 2026-08-08**
 
-Start both servers and walk through, in a real browser, exactly like Plan
-2's Task 10:
+Ran both servers (`uvicorn main:app --reload` on :8000, `npm run dev` on
+:5173, via a `.claude/launch.json` frontend entry) and walked through the
+real app in a real browser.
 
-1. Beginner path: onboard with a fresh profile/track at Beginner level →
-   confirm landing on `/roadmap` and the generating view appears.
-2. Intermediate/Advanced path: onboard at Intermediate → complete the
-   assessment → submit → click "Continue to your roadmap" → confirm landing
-   on `/roadmap` with the generating view.
-3. Dashboard: confirm it reflects real profile/track state at each stage.
-4. Once a roadmap exists (from either path, once Gemini quota allows —
-   see the note below), toggle a module's checkbox on `/roadmap` and confirm
-   the phase/overall progress bars and the dashboard's progress ring update.
+**A real bug was found and fixed along the way**, not anticipated by this
+plan: onboarding through to `/roadmap` (Beginner path) landed on a spinner
+that never resolved. `GET /api/tracks/{id}/roadmap` was confirmed completing
+with a real `404` over the network (and a direct call to `getRoadmap()`
+outside of React Query resolved correctly in 9ms) — but `useRoadmap`'s
+`useQuery` never transitioned out of `status: "pending"`; `fetchStatus` sat
+at `"paused"` indefinitely. Bisected by adding a second, minimal `useQuery`
+in the same component with `retry: false`, which resolved correctly on the
+same render cycle — the only meaningful difference from `useRoadmap`, which
+relied on the `QueryClient`'s default `retry: 1`. Setting `retry: false` on
+`useRoadmap` (and, for the same reason, `useProgress`, which has the
+identical "404 means not generated yet" shape) fixed it immediately and
+reproducibly. `networkMode: "always"` and removing `StrictMode` were both
+tried as hypotheses first and **ruled out** — neither changed the outcome —
+so neither is in the final diff; only `retry: false` on those two hooks,
+with a comment explaining why. Retrying a 404 here was never going to turn
+it into a 200 anyway, so this is a correct fix independent of the paused-
+state bug it happened to resolve.
 
-**Known blocker at verification time:** the Gemini free-tier quota
-(`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, limit 20) has been
-exhausted since Task 5's live smoke test. Steps 1-3 above are fully
-verifiable right now — onboarding navigation, track creation, the SSE
-connection opening, and (critically) the frontend's error-handling path,
-since a quota-exhausted generation call surfaces as a real `AIUnavailable` →
-an `event: error` SSE frame → the "Try again" card in `RoadmapPage`, which
-this step can and should confirm renders correctly. Step 4 (an actual
-generated roadmap to scroll, expand, and check off) stays blocked until the
-daily quota window resets. Whoever picks this up next with quota available
-should re-run step 4 specifically and update this note.
+**Confirmed working, live, in a real browser:**
+1. Beginner path: onboarding → track created → navigates to `/roadmap` →
+   `useRoadmap` correctly resolves `roadmap_not_found` → generation
+   auto-starts → real SSE POST to `/api/tracks/{id}/roadmap/stream`.
+2. Dashboard reflects real state at every stage: empty (`profile: null`)
+   before onboarding; name + "No active track yet" after profile creation;
+   real topic + "Not generated yet." once a track exists; correctly updated
+   after visiting `/roadmap`.
+3. Intermediate path's new piece specifically: seeded a completed assessment
+   directly in the dev DB (zero AI cost — Plan 2's own E2E already proved
+   the assessment generation/grading pipeline; this step only needed to
+   prove the *new* Task 11 wiring) and loaded `/assessment/{id}` — the
+   "Continue to your roadmap" button rendered and, on click, navigated to
+   `/roadmap` for the correct (new) active track, which then correctly
+   auto-started generation for that track too.
+4. The full AI-failure path end-to-end: real `429 RESOURCE_EXHAUSTED` from
+   Gemini → `AIUnavailable` → SSE `event: error` frame → parsed correctly by
+   the real `sseFetch` in a real browser → `useRoadmapStream`'s error state
+   → `RoadmapPage`'s error card with a working "Try again" button. This is
+   the same code path a schema `400` or any other AI failure would take, so
+   it's a real, meaningful confirmation of the whole error-handling chain,
+   not just a quota-specific one-off.
+
+**Still blocked, unavoidably:** an actual successful generation (scrolling a
+real timeline, expanding phases, checking off a module, watching progress
+bars move) requires Gemini to actually return `200`, which requires quota
+this session never had for more than a couple of requests at a time — even
+after what looked like a reset, it re-exhausted within 2-3 live calls,
+suggesting the free tier's window is more of a slow-draining rolling budget
+than a clean daily reset. Whoever next has real quota available should: (a)
+re-run Task 5's smoke test to confirm the Task 4 schema fix, and (b) if that
+passes, come back here and actually watch a roadmap generate in the browser
+— toggle a module, confirm the phase bar, the overall ring on `/roadmap`,
+and the dashboard's progress ring all move together. Everything upstream of
+Gemini actually answering is now verified.
+
+Database was reset (`rm careeros.db`) and both dev servers stopped after
+verification.
 
 ---
