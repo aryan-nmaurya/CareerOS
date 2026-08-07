@@ -2859,3 +2859,492 @@ git commit -m "feat(frontend): add SSE client, roadmap/dashboard API, hooks, and
 ```
 
 ---
+
+## Task 10: Roadmap viewer components and page
+
+**Files:**
+- Create: `frontend/src/components/roadmap/ProgressRing.tsx`, `ModuleRow.tsx`, `PhaseCard.tsx`, `GeneratingRoadmap.tsx`
+- Modify: `frontend/src/pages/RoadmapPage.tsx` (new — replaces the `App.tsx` placeholder)
+- Modify: `frontend/src/App.tsx` (`/roadmap` renders the real page)
+
+Presentational — per this plan's testing approach, verified by typecheck +
+build here, then by a real browser check in Task 11 once there's an actual
+track/roadmap to look at (a placeholder track makes for a hollow visual
+check right now). No new Vitest coverage in this task.
+
+`RoadmapPage` decides for itself whether to show the live-generating view or
+the persisted timeline: it calls `useRoadmap(trackId)`, and if that comes
+back `roadmap_not_found` it auto-starts `useRoadmapStream`. This makes the
+page correct however the learner arrives at `/roadmap` — straight from
+onboarding, from a page refresh mid-generation, or from clicking the sidebar
+link on a track that already has one — rather than requiring onboarding to
+somehow time a separate "start generation" call against a navigation.
+
+- [ ] **Step 1: Write `frontend/src/components/roadmap/ProgressRing.tsx`**
+
+```tsx
+interface ProgressRingProps {
+  percent: number;
+  size?: number;
+  strokeWidth?: number;
+  label?: string;
+}
+
+export function ProgressRing({ percent, size = 80, strokeWidth = 8, label }: ProgressRingProps) {
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const clamped = Math.min(100, Math.max(0, percent));
+  const offset = circumference - (clamped / 100) * circumference;
+
+  return (
+    <div
+      className="relative inline-flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+          className="fill-none stroke-line"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="fill-none stroke-accent transition-[stroke-dashoffset] duration-500"
+        />
+      </svg>
+      <div className="absolute flex flex-col items-center justify-center">
+        <span className="text-lg font-semibold text-text-primary">{Math.round(clamped)}%</span>
+        {label && <span className="text-[10px] text-text-muted">{label}</span>}
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 2: Write `frontend/src/components/roadmap/ModuleRow.tsx`**
+
+```tsx
+import { Check, Circle, Flag, RotateCcw, Sparkles } from "lucide-react";
+
+import { cn } from "@/lib/cn";
+import type { RoadmapModule } from "@/types";
+
+const KIND_ICON: Record<RoadmapModule["kind"], typeof Circle> = {
+  module: Circle,
+  checkpoint: RotateCcw,
+  milestone: Flag,
+  project: Sparkles,
+};
+
+const KIND_LABEL: Record<RoadmapModule["kind"], string> = {
+  module: "Module",
+  checkpoint: "Checkpoint",
+  milestone: "Milestone",
+  project: "Project",
+};
+
+interface ModuleRowProps {
+  module: RoadmapModule;
+  onToggle: (completed: boolean) => void;
+  pending?: boolean;
+}
+
+export function ModuleRow({ module, onToggle, pending }: ModuleRowProps) {
+  const completed = module.completed_at !== null;
+  const Icon = KIND_ICON[module.kind];
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-lg border border-line bg-surface p-3 transition-colors",
+        completed && "bg-accent-soft/40",
+      )}
+    >
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => onToggle(!completed)}
+        aria-label={completed ? "Mark incomplete" : "Mark complete"}
+        className={cn(
+          "mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border transition-colors",
+          completed
+            ? "border-accent bg-accent text-on-accent"
+            : "border-line text-transparent hover:border-accent",
+          pending && "opacity-50",
+        )}
+      >
+        <Check className="size-3.5" strokeWidth={3} />
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-sm font-medium",
+              completed ? "text-text-secondary line-through" : "text-text-primary",
+            )}
+          >
+            {module.title}
+          </span>
+          {module.kind !== "module" && (
+            <span className="flex items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent">
+              <Icon className="size-3" />
+              {KIND_LABEL[module.kind]}
+            </span>
+          )}
+        </div>
+        {module.description && (
+          <p className="mt-0.5 text-xs text-text-secondary">{module.description}</p>
+        )}
+        <p className="mt-1 text-[11px] text-text-muted">{module.estimated_hours}h estimated</p>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Write `frontend/src/components/roadmap/PhaseCard.tsx`**
+
+```tsx
+import { ChevronDown, Lock } from "lucide-react";
+import { useState } from "react";
+
+import { ModuleRow } from "@/components/roadmap/ModuleRow";
+import { cn } from "@/lib/cn";
+import type { RoadmapPhase } from "@/types";
+
+interface PhaseCardProps {
+  phase: RoadmapPhase;
+  completionPct: number;
+  unlocked: boolean;
+  isCurrent: boolean;
+  onToggleModule: (moduleId: number, completed: boolean) => void;
+  togglingModuleId?: number | null;
+}
+
+export function PhaseCard({
+  phase,
+  completionPct,
+  unlocked,
+  isCurrent,
+  onToggleModule,
+  togglingModuleId,
+}: PhaseCardProps) {
+  const [expanded, setExpanded] = useState(isCurrent);
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border bg-surface transition-colors",
+        isCurrent ? "border-accent" : "border-line",
+        !unlocked && "opacity-60",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full items-center gap-3 p-4 text-left"
+      >
+        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+          {phase.order_index + 1}
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-sm font-semibold text-text-primary">{phase.title}</h3>
+            {!unlocked && <Lock className="size-3.5 shrink-0 text-text-muted" />}
+          </div>
+          <p className="mt-0.5 truncate text-xs text-text-secondary">{phase.goal}</p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-3">
+          <div className="hidden w-24 sm:block">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-base"
+                style={{ width: `${completionPct}%` }}
+              />
+            </div>
+          </div>
+          <span className="w-10 text-right text-xs font-medium text-text-secondary">
+            {Math.round(completionPct)}%
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-4 text-text-muted transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="space-y-2 border-t border-line p-4 pt-3">
+          {!unlocked && (
+            <p className="mb-2 text-xs text-text-muted">
+              Complete 80% of the previous phase to unlock this one.
+            </p>
+          )}
+          {phase.modules.map((module) => (
+            <ModuleRow
+              key={module.id}
+              module={module}
+              onToggle={(completed) => onToggleModule(module.id, completed)}
+              pending={togglingModuleId === module.id}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Write `frontend/src/components/roadmap/GeneratingRoadmap.tsx`**
+
+```tsx
+import { motion } from "framer-motion";
+import { Loader2, Sparkles } from "lucide-react";
+
+import { Card } from "@/components/ui/card";
+import type { RoadmapMeta, StreamPhase } from "@/types";
+
+interface GeneratingRoadmapProps {
+  meta: RoadmapMeta | null;
+  phases: StreamPhase[];
+}
+
+export function GeneratingRoadmap({ meta, phases }: GeneratingRoadmapProps) {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 rounded-xl border border-accent/30 bg-accent-soft px-4 py-3">
+        <Loader2 className="size-4 shrink-0 animate-spin text-accent" />
+        <p className="text-sm text-accent">
+          {meta ? "Writing your roadmap phase by phase…" : "Thinking through your roadmap…"}
+        </p>
+      </div>
+
+      {meta && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="space-y-1.5">
+            <h2 className="text-lg font-semibold text-text-primary">{meta.title}</h2>
+            <p className="text-sm text-text-secondary">{meta.summary}</p>
+            <p className="text-xs text-text-muted">
+              {meta.total_weeks} weeks · ~{meta.weekly_hours}h/week
+            </p>
+          </Card>
+        </motion.div>
+      )}
+
+      <div className="space-y-3">
+        {phases.map((phase) => (
+          <motion.div
+            key={`${phase.order_index}-${phase.title}`}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <Card className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
+                  {phase.order_index + 1}
+                </span>
+                <h3 className="text-sm font-semibold text-text-primary">{phase.title}</h3>
+              </div>
+              <p className="pl-8 text-xs text-text-muted">
+                {phase.modules.length} module{phase.modules.length === 1 ? "" : "s"}
+              </p>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+
+      {phases.length === 0 && meta && (
+        <div className="flex items-center gap-2 text-xs text-text-muted">
+          <Sparkles className="size-3.5" />
+          Building phase 1…
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 5: Write `frontend/src/pages/RoadmapPage.tsx`**
+
+```tsx
+import { useQueryClient } from "@tanstack/react-query";
+import { Loader2, RefreshCw } from "lucide-react";
+import { useEffect } from "react";
+
+import { AppShell } from "@/components/layout/AppShell";
+import { TopBar } from "@/components/layout/TopBar";
+import { GeneratingRoadmap } from "@/components/roadmap/GeneratingRoadmap";
+import { PhaseCard } from "@/components/roadmap/PhaseCard";
+import { ProgressRing } from "@/components/roadmap/ProgressRing";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { useActiveTrack } from "@/hooks/useProfile";
+import { roadmapKey, useRoadmap, useToggleModule } from "@/hooks/useRoadmap";
+import { useRoadmapStream } from "@/hooks/useRoadmapStream";
+import { ApiError } from "@/services/api/client";
+
+export default function RoadmapPage() {
+  const { data: track } = useActiveTrack();
+  const trackId = track?.id ?? null;
+  const roadmapQuery = useRoadmap(trackId);
+  const stream = useRoadmapStream();
+  const queryClient = useQueryClient();
+  const toggleModule = useToggleModule(trackId ?? -1);
+
+  const roadmapMissing =
+    roadmapQuery.error instanceof ApiError && roadmapQuery.error.code === "roadmap_not_found";
+
+  useEffect(() => {
+    if (trackId !== null && roadmapMissing && stream.state.status === "idle") {
+      stream.start(trackId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackId, roadmapMissing]);
+
+  useEffect(() => {
+    if (stream.state.status === "done" && trackId !== null) {
+      queryClient.invalidateQueries({ queryKey: roadmapKey(trackId) });
+    }
+  }, [stream.state.status, trackId, queryClient]);
+
+  if (!track) {
+    return (
+      <AppShell>
+        <TopBar title="Roadmap" subtitle="Pick a track from the dashboard first." />
+      </AppShell>
+    );
+  }
+
+  if (stream.state.status === "streaming" || stream.state.status === "done") {
+    return (
+      <AppShell>
+        <TopBar title={`${track.topic} roadmap`} subtitle="Generating your personalized plan…" />
+        <GeneratingRoadmap
+          meta={stream.state.status === "streaming" ? stream.state.meta : null}
+          phases={stream.state.status === "streaming" ? stream.state.phases : []}
+        />
+      </AppShell>
+    );
+  }
+
+  if (stream.state.status === "error") {
+    return (
+      <AppShell>
+        <TopBar title={`${track.topic} roadmap`} />
+        <Card className="space-y-3">
+          <p className="text-sm text-text-primary">{stream.state.message}</p>
+          <Button size="sm" onClick={() => stream.start(track.id)}>
+            <RefreshCw className="size-4" /> Try again
+          </Button>
+        </Card>
+      </AppShell>
+    );
+  }
+
+  if (roadmapQuery.isPending || !roadmapQuery.data) {
+    return (
+      <AppShell>
+        <div className="grid place-items-center py-24">
+          <Loader2 className="size-6 animate-spin text-text-muted" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  const roadmap = roadmapQuery.data;
+
+  return (
+    <AppShell>
+      <TopBar title={roadmap.title} subtitle={roadmap.summary} />
+
+      <div className="mb-6 flex items-center gap-6 rounded-xl border border-line bg-surface p-5">
+        <ProgressRing percent={roadmap.progress.completion_pct} />
+        <div>
+          <p className="text-sm font-medium text-text-primary">
+            {roadmap.progress.completed_modules} of {roadmap.progress.total_modules} modules
+            complete
+          </p>
+          <p className="mt-1 text-xs text-text-secondary">
+            {roadmap.total_weeks} weeks · ~{roadmap.weekly_hours}h/week
+          </p>
+          {roadmap.progress.current_phase_title && (
+            <p className="mt-1 text-xs text-accent">
+              Currently on: {roadmap.progress.current_phase_title}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {roadmap.phases.map((phase, index) => {
+          const phaseProgress = roadmap.progress.phases[index];
+          return (
+            <PhaseCard
+              key={phase.id}
+              phase={phase}
+              completionPct={phaseProgress?.completion_pct ?? 0}
+              unlocked={phaseProgress?.unlocked ?? true}
+              isCurrent={index === roadmap.progress.current_phase_index}
+              onToggleModule={(moduleId, completed) =>
+                toggleModule.mutate({ moduleId, completed })
+              }
+              togglingModuleId={
+                toggleModule.isPending ? (toggleModule.variables?.moduleId ?? null) : null
+              }
+            />
+          );
+        })}
+      </div>
+
+      {roadmap.final_project && (
+        <Card className="mt-6 space-y-2 border-accent/30">
+          <h3 className="text-sm font-semibold text-accent">
+            Capstone: {roadmap.final_project.title}
+          </h3>
+          <p className="text-sm text-text-secondary">{roadmap.final_project.description}</p>
+        </Card>
+      )}
+    </AppShell>
+  );
+}
+```
+
+- [ ] **Step 6: Wire `frontend/src/App.tsx`**
+
+Replace the `/roadmap` placeholder route:
+
+```tsx
+<Route path="/roadmap" element={<RoadmapPage />} />
+```
+
+Add `import RoadmapPage from "@/pages/RoadmapPage";` next to the other page
+imports, and remove `roadmap` from any remaining `Placeholder` usages (the
+`interview` route keeps using `Placeholder` — that's Plan 4).
+
+- [ ] **Step 7: Typecheck and build**
+
+Run: `cd frontend && npx tsc -b --noEmit && npm run build`
+Expected: both clean, no errors.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add frontend/src/components/roadmap frontend/src/pages/RoadmapPage.tsx frontend/src/App.tsx
+git commit -m "feat(frontend): add roadmap timeline viewer with live-streaming generation view"
+```
+
+---

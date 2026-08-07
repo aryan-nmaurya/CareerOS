@@ -7,6 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import AssessmentPage from "@/pages/AssessmentPage";
 import DashboardPage from "@/pages/DashboardPage";
 import OnboardingPage from "@/pages/OnboardingPage";
+import RoadmapPage from "@/pages/RoadmapPage";
 import SettingsPage from "@/pages/SettingsPage";
 
 function Placeholder({ title }: { title: string }) {
@@ -39,7 +40,7 @@ export default function App() {
       <Route path="/onboarding" element={<OnboardingPage />} />
       <Route path="/assessment/:id" element={<AssessmentPage />} />
       <Route path="/" element={<DashboardPage />} />
-      <Route path="/roadmap" element={<Placeholder title="Roadmap" />} />
+      <Route path="/roadmap" element={<RoadmapPage />} />
       <Route path="/interview" element={<Placeholder title="Interviews" />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
