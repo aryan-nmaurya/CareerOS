@@ -2173,7 +2173,6 @@ export function TopicStep({ onNext }: { onNext: (topic: string) => void }) {
 ```tsx
 import { Loader2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { EXPERIENCE_LEVELS } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import type { ExperienceLevel } from "@/types";
