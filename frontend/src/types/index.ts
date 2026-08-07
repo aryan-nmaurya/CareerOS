@@ -48,3 +48,119 @@ export interface Assessment {
   summary: string | null;
   questions: AssessmentQuestion[];
 }
+
+export type ModuleKind = "module" | "checkpoint" | "milestone" | "project";
+
+export interface RoadmapModule {
+  id: number;
+  order_index: number;
+  title: string;
+  description: string;
+  lessons: string[];
+  exercises: string[];
+  project: { title: string; description: string } | null;
+  estimated_hours: number;
+  kind: ModuleKind;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface RoadmapPhase {
+  id: number;
+  order_index: number;
+  title: string;
+  description: string;
+  goal: string;
+  estimated_hours: number;
+  modules: RoadmapModule[];
+}
+
+export interface WeeklyGoal {
+  week: number;
+  goal: string;
+  phase_order: number;
+}
+
+export interface FinalProject {
+  title: string;
+  description: string;
+  skills_demonstrated: string[];
+}
+
+export interface PhaseProgress {
+  order_index: number;
+  completion_pct: number;
+  unlocked: boolean;
+}
+
+export interface Progress {
+  completion_pct: number;
+  completed_modules: number;
+  total_modules: number;
+  current_phase_index: number;
+  current_phase_title: string | null;
+  phases: PhaseProgress[];
+}
+
+export interface Roadmap {
+  id: number;
+  track_id: number;
+  title: string;
+  summary: string;
+  total_weeks: number;
+  weekly_hours: number;
+  weekly_goals: WeeklyGoal[];
+  final_project: FinalProject | null;
+  created_at: string;
+  phases: RoadmapPhase[];
+  progress: Progress;
+}
+
+export interface NextModule {
+  id: number;
+  title: string;
+  kind: ModuleKind;
+  phase_title: string;
+}
+
+export interface Dashboard {
+  profile: Profile | null;
+  active_track: Track | null;
+  roadmap_summary: string | null;
+  current_phase: string | null;
+  completed_modules: number;
+  remaining_modules: number;
+  completion_pct: number;
+  next_module: NextModule | null;
+  recent_interviews: unknown[];
+}
+
+// Streamed phase/module data has no id yet — it isn't persisted-and-fetched
+// until generation finishes; only the real GET /roadmap response (above) has
+// ids. This is why RoadmapPage switches from the stream view to a real
+// useRoadmap() query once the "done" event arrives, rather than trying to
+// make the streamed data itself interactive.
+export interface StreamModule {
+  title: string;
+  description: string;
+  lessons: string[];
+  exercises: string[];
+  project: { title: string; description: string } | null;
+  estimated_hours: number;
+  kind: ModuleKind;
+}
+
+export interface StreamPhase {
+  order_index: number;
+  title: string;
+  modules: StreamModule[];
+}
+
+export interface RoadmapMeta {
+  title: string;
+  summary: string;
+  total_weeks: number;
+  weekly_hours: number;
+  weekly_goals: WeeklyGoal[];
+  final_project: FinalProject | null;
+}

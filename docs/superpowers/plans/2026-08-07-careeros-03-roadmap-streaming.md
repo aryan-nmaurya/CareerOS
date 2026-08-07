@@ -2253,3 +2253,609 @@ git commit -m "feat(backend): add dashboard aggregate endpoint"
 ```
 
 ---
+
+## Task 9: Frontend SSE client, roadmap/dashboard API, hooks, and the progress mirror
+
+**Files:**
+- Modify: `frontend/src/types/index.ts` (+ roadmap/dashboard/progress/stream types)
+- Modify: `frontend/src/services/api/client.ts` (export `BASE_URL` so `sse.ts` doesn't duplicate it)
+- Create: `frontend/src/services/api/sse.ts`, `roadmap.ts`, `dashboard.ts`
+- Create: `frontend/src/hooks/useRoadmapStream.ts`, `useRoadmap.ts`, `useDashboard.ts`
+- Create: `frontend/src/lib/progress.ts`
+- Test: `frontend/src/services/api/__tests__/sse.test.ts`, `frontend/src/lib/__tests__/progress.test.ts`
+
+**Verified live before writing this task:** jsdom (the project's Vitest
+`environment`) *does* correctly support constructing a real `Response` with a
+`ReadableStream` body and reading it with `response.body.getReader()`, and
+`global.fetch` can be overridden to return one — checked with a throwaway
+probe test (two cases: direct `Response`, then through an overridden
+`fetch`), both passed, then deleted. This means `sse.ts` is testable exactly
+like the backend's `PhaseStreamParser` — a fake stream, no real network.
+
+`lib/progress.ts` mirrors `services/progress_service.py` function-for-function
+and its test fixtures are the *same 10 cases*, not just "similar" — this is
+what makes the "implemented twice, tested identically" claim in this plan's
+architecture line actually true rather than aspirational.
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `frontend/src/lib/__tests__/progress.test.ts`:
+
+```typescript
+import { describe, expect, it } from "vitest";
+
+import {
+  buildProgress,
+  currentPhaseIndex,
+  isModuleComplete,
+  isPhaseUnlocked,
+  phaseCompletion,
+  roadmapCompletion,
+} from "@/lib/progress";
+
+function mod(completed: boolean) {
+  return { completed_at: completed ? "2026-01-01T00:00:00" : null };
+}
+
+function phase(orderIndex: number, modules: { completed_at: string | null }[]) {
+  return { order_index: orderIndex, title: `Phase ${orderIndex}`, modules };
+}
+
+describe("isModuleComplete", () => {
+  it("checks completed_at", () => {
+    expect(isModuleComplete(mod(true))).toBe(true);
+    expect(isModuleComplete(mod(false))).toBe(false);
+  });
+});
+
+describe("phaseCompletion", () => {
+  it("is the completed fraction", () => {
+    expect(phaseCompletion([mod(true), mod(true), mod(false)])).toBeCloseTo(2 / 3);
+  });
+
+  it("is zero for an empty phase, not a crash", () => {
+    expect(phaseCompletion([])).toBe(0);
+  });
+});
+
+describe("roadmapCompletion", () => {
+  it("spans all phases", () => {
+    const phases = [phase(0, [mod(true), mod(true)]), phase(1, [mod(true), mod(false)])];
+    expect(roadmapCompletion(phases)).toBeCloseTo(3 / 4);
+  });
+});
+
+describe("isPhaseUnlocked", () => {
+  it("the first phase is always unlocked", () => {
+    expect(isPhaseUnlocked(0, [phase(0, [mod(false)])])).toBe(true);
+  });
+
+  it("unlocks at exactly 80% previous completion", () => {
+    const previous = phase(0, [mod(true), mod(true), mod(true), mod(true), mod(false)]);
+    expect(isPhaseUnlocked(1, [previous, phase(1, [mod(false)])])).toBe(true);
+  });
+
+  it("stays locked just under 80% previous completion", () => {
+    const previous = phase(0, [mod(true), mod(true), mod(true), mod(false)]);
+    expect(isPhaseUnlocked(1, [previous, phase(1, [mod(false)])])).toBe(false);
+  });
+});
+
+describe("currentPhaseIndex", () => {
+  it("is the first incomplete phase", () => {
+    const phases = [phase(0, [mod(true)]), phase(1, [mod(false)]), phase(2, [mod(false)])];
+    expect(currentPhaseIndex(phases)).toBe(1);
+  });
+
+  it("is the last phase when everything is complete", () => {
+    expect(currentPhaseIndex([phase(0, [mod(true)]), phase(1, [mod(true)])])).toBe(1);
+  });
+});
+
+describe("buildProgress", () => {
+  it("summarizes everything in one shape", () => {
+    const phases = [phase(0, [mod(true), mod(true)]), phase(1, [mod(false)])];
+    const progress = buildProgress(phases);
+
+    expect(progress.completed_modules).toBe(2);
+    expect(progress.total_modules).toBe(3);
+    expect(progress.completion_pct).toBeCloseTo(66.7, 1);
+    expect(progress.current_phase_index).toBe(1);
+    expect(progress.phases[0].unlocked).toBe(true);
+    expect(progress.phases[1].unlocked).toBe(true);
+    expect(progress.phases[1].completion_pct).toBe(0);
+  });
+});
+```
+
+Create `frontend/src/services/api/__tests__/sse.test.ts`:
+
+```typescript
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { sseFetch } from "@/services/api/sse";
+
+function streamFromChunks(chunks: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let i = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (i < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[i]));
+        i += 1;
+      } else {
+        controller.close();
+      }
+    },
+  });
+}
+
+function mockFetchReturning(chunks: string[]) {
+  return vi.fn(async () => new Response(streamFromChunks(chunks), { status: 200 }));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+async function collect(path: string) {
+  const events = [];
+  for await (const event of sseFetch(path)) events.push(event);
+  return events;
+}
+
+describe("sseFetch", () => {
+  it("parses a single complete event", async () => {
+    vi.stubGlobal("fetch", mockFetchReturning(['event: meta\ndata: {"title":"T"}\n\n']));
+
+    expect(await collect("/x")).toEqual([{ event: "meta", data: { title: "T" } }]);
+  });
+
+  it("reassembles an event split across multiple read chunks", async () => {
+    vi.stubGlobal("fetch", mockFetchReturning(['event: meta\ndata: {"tit', 'le":"T"}\n\n']));
+
+    expect(await collect("/x")).toEqual([{ event: "meta", data: { title: "T" } }]);
+  });
+
+  it("emits multiple events in arrival order, one per block", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetchReturning([
+        'event: meta\ndata: {"a":1}\n\n',
+        'event: phase\ndata: {"b":2}\n\nevent: done\ndata: {"c":3}\n\n',
+      ]),
+    );
+
+    const events = await collect("/x");
+    expect(events.map((e) => e.event)).toEqual(["meta", "phase", "done"]);
+    expect(events.map((e) => e.data)).toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
+  });
+});
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `cd frontend && npx vitest run src/lib/__tests__/progress.test.ts src/services/api/__tests__/sse.test.ts`
+Expected: FAIL — `Cannot find module '@/lib/progress'` and `Cannot find module '@/services/api/sse'`
+
+- [ ] **Step 3: Add roadmap/dashboard/stream types to `frontend/src/types/index.ts`**
+
+Append:
+
+```typescript
+export type ModuleKind = "module" | "checkpoint" | "milestone" | "project";
+
+export interface RoadmapModule {
+  id: number;
+  order_index: number;
+  title: string;
+  description: string;
+  lessons: string[];
+  exercises: string[];
+  project: { title: string; description: string } | null;
+  estimated_hours: number;
+  kind: ModuleKind;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface RoadmapPhase {
+  id: number;
+  order_index: number;
+  title: string;
+  description: string;
+  goal: string;
+  estimated_hours: number;
+  modules: RoadmapModule[];
+}
+
+export interface WeeklyGoal {
+  week: number;
+  goal: string;
+  phase_order: number;
+}
+
+export interface FinalProject {
+  title: string;
+  description: string;
+  skills_demonstrated: string[];
+}
+
+export interface PhaseProgress {
+  order_index: number;
+  completion_pct: number;
+  unlocked: boolean;
+}
+
+export interface Progress {
+  completion_pct: number;
+  completed_modules: number;
+  total_modules: number;
+  current_phase_index: number;
+  current_phase_title: string | null;
+  phases: PhaseProgress[];
+}
+
+export interface Roadmap {
+  id: number;
+  track_id: number;
+  title: string;
+  summary: string;
+  total_weeks: number;
+  weekly_hours: number;
+  weekly_goals: WeeklyGoal[];
+  final_project: FinalProject | null;
+  created_at: string;
+  phases: RoadmapPhase[];
+  progress: Progress;
+}
+
+export interface NextModule {
+  id: number;
+  title: string;
+  kind: ModuleKind;
+  phase_title: string;
+}
+
+export interface Dashboard {
+  profile: Profile | null;
+  active_track: Track | null;
+  roadmap_summary: string | null;
+  current_phase: string | null;
+  completed_modules: number;
+  remaining_modules: number;
+  completion_pct: number;
+  next_module: NextModule | null;
+  recent_interviews: unknown[];
+}
+
+// Streamed phase/module data has no id yet — it isn't persisted-and-fetched
+// until generation finishes; only the real GET /roadmap response (above) has
+// ids. This is why RoadmapPage switches from the stream view to a real
+// useRoadmap() query once the "done" event arrives, rather than trying to
+// make the streamed data itself interactive.
+export interface StreamModule {
+  title: string;
+  description: string;
+  lessons: string[];
+  exercises: string[];
+  project: { title: string; description: string } | null;
+  estimated_hours: number;
+  kind: ModuleKind;
+}
+
+export interface StreamPhase {
+  order_index: number;
+  title: string;
+  modules: StreamModule[];
+}
+
+export interface RoadmapMeta {
+  title: string;
+  summary: string;
+  total_weeks: number;
+  weekly_hours: number;
+  weekly_goals: WeeklyGoal[];
+  final_project: FinalProject | null;
+}
+```
+
+- [ ] **Step 4: Export `BASE_URL` from `frontend/src/services/api/client.ts`**
+
+Change `const BASE_URL = ...` to `export const BASE_URL = ...` (only the one
+line changes; everything else in the file stays the same).
+
+- [ ] **Step 5: Write `frontend/src/services/api/sse.ts`**
+
+```typescript
+import { BASE_URL } from "@/services/api/client";
+
+export interface SseEvent<T = unknown> {
+  event: string;
+  data: T;
+}
+
+function parseSseBlock(block: string): SseEvent | null {
+  let event = "message";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event: ")) event = line.slice(7);
+    else if (line.startsWith("data: ")) data = line.slice(6);
+  }
+  if (!data) return null;
+  try {
+    return { event, data: JSON.parse(data) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * fetch + ReadableStream SSE reader. Not EventSource, which can't POST.
+ * Scans the accumulated buffer for `\n\n` block boundaries rather than
+ * assuming a boundary lands inside a single read() chunk — chunk
+ * boundaries are a transport detail with no relation to SSE framing,
+ * exactly like the backend's own raw-text chunking.
+ */
+export async function* sseFetch(path: string, init?: RequestInit): AsyncGenerator<SseEvent> {
+  const response = await fetch(`${BASE_URL}${path}`, init);
+  if (!response.ok || !response.body) {
+    throw new Error(`Stream request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let boundary = buffer.indexOf("\n\n");
+    while (boundary !== -1) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      const event = parseSseBlock(block);
+      if (event) yield event;
+      boundary = buffer.indexOf("\n\n");
+    }
+  }
+}
+```
+
+- [ ] **Step 6: Write `frontend/src/lib/progress.ts`**
+
+```typescript
+interface ModuleLike {
+  completed_at: string | null;
+}
+
+interface PhaseLike {
+  order_index: number;
+  title: string;
+  modules: ModuleLike[];
+}
+
+export function isModuleComplete(module: ModuleLike): boolean {
+  return module.completed_at !== null;
+}
+
+export function phaseCompletion(modules: ModuleLike[]): number {
+  if (modules.length === 0) return 0;
+  return modules.filter(isModuleComplete).length / modules.length;
+}
+
+export function roadmapCompletion(phases: PhaseLike[]): number {
+  const allModules = phases.flatMap((p) => p.modules);
+  if (allModules.length === 0) return 0;
+  return allModules.filter(isModuleComplete).length / allModules.length;
+}
+
+export function isPhaseUnlocked(phaseIndex: number, phases: PhaseLike[]): boolean {
+  if (phaseIndex === 0) return true;
+  return phaseCompletion(phases[phaseIndex - 1].modules) >= 0.8;
+}
+
+export function currentPhaseIndex(phases: PhaseLike[]): number {
+  for (let i = 0; i < phases.length; i++) {
+    if (phaseCompletion(phases[i].modules) < 1) return i;
+  }
+  return phases.length > 0 ? phases.length - 1 : 0;
+}
+
+export interface ProgressSummary {
+  completion_pct: number;
+  completed_modules: number;
+  total_modules: number;
+  current_phase_index: number;
+  current_phase_title: string | null;
+  phases: { order_index: number; completion_pct: number; unlocked: boolean }[];
+}
+
+export function buildProgress(phases: PhaseLike[]): ProgressSummary {
+  const totalModules = phases.reduce((sum, p) => sum + p.modules.length, 0);
+  const completedModules = phases.reduce(
+    (sum, p) => sum + p.modules.filter(isModuleComplete).length,
+    0,
+  );
+  const current = currentPhaseIndex(phases);
+
+  return {
+    completion_pct: Math.round(roadmapCompletion(phases) * 1000) / 10,
+    completed_modules: completedModules,
+    total_modules: totalModules,
+    current_phase_index: current,
+    current_phase_title: phases.length > 0 ? phases[current].title : null,
+    phases: phases.map((phase, i) => ({
+      order_index: phase.order_index,
+      completion_pct: Math.round(phaseCompletion(phase.modules) * 1000) / 10,
+      unlocked: isPhaseUnlocked(i, phases),
+    })),
+  };
+}
+```
+
+- [ ] **Step 7: Run tests to verify they pass**
+
+Run: `cd frontend && npx vitest run src/lib/__tests__/progress.test.ts src/services/api/__tests__/sse.test.ts`
+Expected: PASS — `10 passed` (progress) and `3 passed` (sse)
+
+- [ ] **Step 8: Write the remaining API/hook files (no new tests — thin wiring over what Steps 5-6 already tested)**
+
+`frontend/src/services/api/roadmap.ts`:
+
+```typescript
+import { api } from "@/services/api/client";
+import { sseFetch } from "@/services/api/sse";
+import type { Progress, Roadmap, RoadmapModule } from "@/types";
+
+export function streamRoadmap(trackId: number) {
+  return sseFetch(`/api/tracks/${trackId}/roadmap/stream`, { method: "POST" });
+}
+
+export const getRoadmap = (trackId: number) => api<Roadmap>(`/api/tracks/${trackId}/roadmap`);
+
+export const toggleModule = (moduleId: number, completed: boolean) =>
+  api<{ module: RoadmapModule; progress: Progress }>(`/api/modules/${moduleId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ completed }),
+  });
+
+export const getProgress = (trackId: number) => api<Progress>(`/api/tracks/${trackId}/progress`);
+```
+
+`frontend/src/services/api/dashboard.ts`:
+
+```typescript
+import { api } from "@/services/api/client";
+import type { Dashboard } from "@/types";
+
+export const getDashboard = () => api<Dashboard>("/api/dashboard");
+```
+
+`frontend/src/hooks/useRoadmapStream.ts`:
+
+```typescript
+import { useCallback, useRef, useState } from "react";
+
+import { streamRoadmap } from "@/services/api/roadmap";
+import type { RoadmapMeta, StreamPhase } from "@/types";
+
+type StreamState =
+  | { status: "idle" }
+  | { status: "streaming"; meta: RoadmapMeta | null; phases: StreamPhase[] }
+  | { status: "done"; roadmapId: number }
+  | { status: "error"; code: string; message: string };
+
+export function useRoadmapStream() {
+  const [state, setState] = useState<StreamState>({ status: "idle" });
+  const runningRef = useRef(false);
+
+  const start = useCallback(async (trackId: number) => {
+    if (runningRef.current) return;
+    runningRef.current = true;
+    setState({ status: "streaming", meta: null, phases: [] });
+
+    try {
+      for await (const { event, data } of streamRoadmap(trackId)) {
+        if (event === "meta") {
+          setState((prev) =>
+            prev.status === "streaming" ? { ...prev, meta: data as RoadmapMeta } : prev,
+          );
+        } else if (event === "phase") {
+          setState((prev) =>
+            prev.status === "streaming"
+              ? { ...prev, phases: [...prev.phases, data as StreamPhase] }
+              : prev,
+          );
+        } else if (event === "done") {
+          setState({ status: "done", roadmapId: (data as { roadmap_id: number }).roadmap_id });
+        } else if (event === "error") {
+          const err = data as { code: string; message: string };
+          setState({ status: "error", code: err.code, message: err.message });
+        }
+      }
+    } catch (error) {
+      setState({
+        status: "error",
+        code: "network_error",
+        message: error instanceof Error ? error.message : "Connection lost.",
+      });
+    } finally {
+      runningRef.current = false;
+    }
+  }, []);
+
+  return { state, start };
+}
+```
+
+`frontend/src/hooks/useRoadmap.ts`:
+
+```typescript
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { getProgress, getRoadmap, toggleModule } from "@/services/api/roadmap";
+import { dashboardKey } from "@/hooks/useDashboard";
+
+export const roadmapKey = (trackId: number) => ["roadmap", trackId] as const;
+export const progressKey = (trackId: number) => ["progress", trackId] as const;
+
+export function useRoadmap(trackId: number | null) {
+  return useQuery({
+    queryKey: roadmapKey(trackId ?? -1),
+    queryFn: () => getRoadmap(trackId as number),
+    enabled: trackId !== null,
+  });
+}
+
+export function useProgress(trackId: number | null) {
+  return useQuery({
+    queryKey: progressKey(trackId ?? -1),
+    queryFn: () => getProgress(trackId as number),
+    enabled: trackId !== null,
+  });
+}
+
+export function useToggleModule(trackId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ moduleId, completed }: { moduleId: number; completed: boolean }) =>
+      toggleModule(moduleId, completed),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: roadmapKey(trackId) });
+      queryClient.invalidateQueries({ queryKey: progressKey(trackId) });
+      queryClient.invalidateQueries({ queryKey: dashboardKey });
+    },
+  });
+}
+```
+
+`frontend/src/hooks/useDashboard.ts`:
+
+```typescript
+import { useQuery } from "@tanstack/react-query";
+
+import { getDashboard } from "@/services/api/dashboard";
+
+export const dashboardKey = ["dashboard"] as const;
+
+export function useDashboard() {
+  return useQuery({ queryKey: dashboardKey, queryFn: getDashboard });
+}
+```
+
+- [ ] **Step 9: Typecheck and full frontend test run**
+
+Run: `cd frontend && npx tsc -b --noEmit && npm test`
+Expected: typecheck clean; all existing + new tests pass.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add frontend/src/types/index.ts frontend/src/services/api/client.ts frontend/src/services/api/sse.ts frontend/src/services/api/roadmap.ts frontend/src/services/api/dashboard.ts frontend/src/hooks/useRoadmapStream.ts frontend/src/hooks/useRoadmap.ts frontend/src/hooks/useDashboard.ts frontend/src/lib/progress.ts frontend/src/services/api/__tests__/sse.test.ts frontend/src/lib/__tests__/progress.test.ts
+git commit -m "feat(frontend): add SSE client, roadmap/dashboard API, hooks, and progress mirror"
+```
+
+---
