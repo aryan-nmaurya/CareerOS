@@ -9,6 +9,7 @@ from ai.client import AIClient
 from ai.errors import AIInvalidResponse
 from ai.prompts.interview import build_interview_prompt
 from models.interview import Interview, InterviewQuestion
+from schemas.interview import InterviewOut, InterviewQuestionOut
 from services import profile_service, roadmap_service
 from services.progress_service import current_phase_index
 from services.roadmap_service import RoadmapNotFoundError
@@ -126,6 +127,31 @@ def complete_interview(db: Session, interview_id: int) -> Interview:
     db.commit()
     db.refresh(interview)
     return interview
+
+
+def _question_out(question: InterviewQuestion) -> InterviewQuestionOut:
+    return InterviewQuestionOut(
+        id=question.id,
+        order_index=question.order_index,
+        question=question.question,
+        expected_points=question.expected_points,
+        transcript=question.transcript,
+        answer_duration_s=question.answer_duration_s,
+    )
+
+
+def to_interview_out(interview: Interview) -> InterviewOut:
+    return InterviewOut(
+        id=interview.id,
+        track_id=interview.track_id,
+        level=interview.level,
+        question_count=interview.question_count,
+        status=interview.status,
+        started_at=interview.started_at,
+        ended_at=interview.ended_at,
+        termination_reason=interview.termination_reason,
+        questions=[_question_out(q) for q in interview.questions],
+    )
 
 
 def quit_interview(db: Session, interview_id: int) -> Interview:

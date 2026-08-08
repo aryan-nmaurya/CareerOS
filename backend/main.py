@@ -7,9 +7,10 @@ from config import settings
 from db.base import Base
 from db.session import engine
 from models import assessment as _assessment_models  # noqa: F401
+from models import interview as _interview_models  # noqa: F401
 from models import roadmap as _roadmap_models  # noqa: F401
 from models import user as _user_models  # noqa: F401
-from routers import assessment, dashboard, health, profile, roadmap, tracks
+from routers import assessment, dashboard, health, interview, profile, roadmap, tracks
 
 
 def create_app() -> FastAPI:
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(assessment.router)
     app.include_router(roadmap.router)
     app.include_router(dashboard.router)
+    app.include_router(interview.router)
     return app
 
 
