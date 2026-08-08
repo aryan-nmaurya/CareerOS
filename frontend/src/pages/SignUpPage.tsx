@@ -43,7 +43,6 @@ export default function SignUpPage() {
                 Password
               </label>
               <Input id="signup-password" type="password" value={DEMO_PASSWORD} readOnly />
-              <p className="mt-1.5 text-xs text-text-muted">Demo password: {DEMO_PASSWORD}</p>
             </div>
           </div>
 
