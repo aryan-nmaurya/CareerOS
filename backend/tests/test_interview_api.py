@@ -15,6 +15,30 @@ def _generation_payload(count=5):
     }
 
 
+def _evaluation_payload(count=5):
+    return {
+        "questions": [
+            {
+                "technical_score": 7,
+                "communication_score": 8,
+                "confidence_score": 6,
+                "missing_concepts": [],
+                "better_answer": "A better answer.",
+                "feedback": "Good.",
+            }
+            for _ in range(count)
+        ],
+        "overall_score": 70,
+        "technical_score": 70,
+        "communication_score": 80,
+        "confidence_score": 60,
+        "strengths": [],
+        "weaknesses": [],
+        "recommendations": [],
+        "summary": "Done.",
+    }
+
+
 def test_start_interview_returns_201_with_questions(client, fake_ai):
     track_id = _onboard_and_track(client)
     fake_ai.queue_response(_generation_payload(5))
@@ -109,6 +133,7 @@ def test_submit_interview_marks_completed(client, fake_ai):
         f"/api/tracks/{track_id}/interviews",
         json={"level": "intermediate", "question_count": 5},
     ).json()["id"]
+    fake_ai.queue_response(_evaluation_payload(5))
 
     response = client.post(f"/api/interviews/{interview_id}/submit")
 
@@ -123,6 +148,7 @@ def test_submit_interview_already_completed_returns_409(client, fake_ai):
         f"/api/tracks/{track_id}/interviews",
         json={"level": "intermediate", "question_count": 5},
     ).json()["id"]
+    fake_ai.queue_response(_evaluation_payload(5))
     client.post(f"/api/interviews/{interview_id}/submit")
 
     response = client.post(f"/api/interviews/{interview_id}/submit")
@@ -159,3 +185,20 @@ def test_quit_interview_already_terminated_returns_409(client, fake_ai):
     response = client.post(f"/api/interviews/{interview_id}/quit")
 
     assert response.status_code == 409
+
+
+def test_proctoring_events_are_server_authoritative(client, fake_ai):
+    track_id = _onboard_and_track(client)
+    fake_ai.queue_response(_generation_payload(5))
+    interview_id = client.post(
+        f"/api/tracks/{track_id}/interviews",
+        json={"level": "intermediate", "question_count": 5},
+    ).json()["id"]
+    for event_type in ("looking_away", "no_face", "looking_away"):
+        response = client.post(
+            f"/api/interviews/{interview_id}/events",
+            json={"type": event_type, "detail": "test"},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"warning_count": 3, "should_terminate": True}
+    assert client.get(f"/api/interviews/{interview_id}").json()["status"] == "terminated"

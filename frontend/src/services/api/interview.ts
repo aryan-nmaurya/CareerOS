@@ -1,5 +1,5 @@
 import { api } from "@/services/api/client";
-import type { Interview, InterviewLevel } from "@/types";
+import type { Interview, InterviewLevel, ProctoringEventType } from "@/types";
 
 export const startInterview = (trackId: number, level: InterviewLevel, questionCount: number) =>
   api<Interview>(`/api/tracks/${trackId}/interviews`, {
@@ -26,3 +26,11 @@ export const submitInterview = (interviewId: number) =>
 
 export const quitInterview = (interviewId: number) =>
   api<Interview>(`/api/interviews/${interviewId}/quit`, { method: "POST" });
+
+export const recordEvent = (interviewId: number, type: ProctoringEventType, detail: string) =>
+  api<{ warning_count: number; should_terminate: boolean }>(
+    `/api/interviews/${interviewId}/events`,
+    { method: "POST", body: JSON.stringify({ type, detail }) },
+  );
+
+export const listInterviews = () => api<Interview[]>("/api/interviews");

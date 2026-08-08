@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getAssessment,
+  listAssessments,
   saveAnswer,
   startAssessment,
   submitAssessment,
@@ -33,4 +34,8 @@ export function useSubmitAssessment(assessmentId: number) {
     mutationFn: () => submitAssessment(assessmentId),
     onSuccess: (data) => queryClient.setQueryData(assessmentKey(assessmentId), data),
   });
+}
+
+export function useAssessments() {
+  return useQuery({ queryKey: ["assessments"], queryFn: listAssessments });
 }

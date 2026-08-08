@@ -7,6 +7,8 @@ export const startAssessment = (trackId: number) =>
 export const getAssessment = (assessmentId: number) =>
   api<Assessment>(`/api/assessments/${assessmentId}`);
 
+export const listAssessments = () => api<Assessment[]>("/api/assessments");
+
 export const saveAnswer = (assessmentId: number, questionId: number, answer: string) =>
   api<null>(`/api/assessments/${assessmentId}/answers`, {
     method: "PATCH",

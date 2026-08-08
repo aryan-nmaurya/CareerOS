@@ -6,6 +6,8 @@ import AssessmentPage from "@/pages/AssessmentPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InterviewActivePage from "@/pages/InterviewActivePage";
 import InterviewSetupPage from "@/pages/InterviewSetupPage";
+import InterviewReportPage from "@/pages/InterviewReportPage";
+import HistoryPage from "@/pages/HistoryPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import RoadmapPage from "@/pages/RoadmapPage";
 import SettingsPage from "@/pages/SettingsPage";
@@ -35,6 +37,8 @@ export default function App() {
       <Route path="/roadmap" element={<RoadmapPage />} />
       <Route path="/interview" element={<InterviewSetupPage />} />
       <Route path="/interview/:id" element={<InterviewActivePage />} />
+      <Route path="/interview/:id/report" element={<InterviewReportPage />} />
+      <Route path="/history" element={<HistoryPage />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

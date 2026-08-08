@@ -9,8 +9,6 @@ _QUESTION_SCHEMA = {
         "expected_points": {
             "type": "ARRAY",
             "items": {"type": "STRING"},
-            "min_items": 2,
-            "max_items": 5,
         },
     },
     "required": ["question", "expected_points"],
@@ -66,9 +64,7 @@ def build_interview_prompt(
         "type": "OBJECT",
         "properties": {
             "questions": {
-                "type": "ARRAY",
-                "min_items": count,
-                "max_items": count,
+            "type": "ARRAY",
                 "items": _QUESTION_SCHEMA,
             },
         },

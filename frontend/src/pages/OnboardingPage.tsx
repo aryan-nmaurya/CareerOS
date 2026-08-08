@@ -1,29 +1,38 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { LevelStep } from "@/components/onboarding/LevelStep";
 import { NameStep } from "@/components/onboarding/NameStep";
 import { TopicStep } from "@/components/onboarding/TopicStep";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useStartAssessment } from "@/hooks/useAssessment";
-import { useCreateProfile, useCreateTrack, useProfile } from "@/hooks/useProfile";
+import { useCreateProfile, useCreateTrack, useProfile, useUpdateProfile } from "@/hooks/useProfile";
 import { cn } from "@/lib/cn";
 import type { ExperienceLevel } from "@/types";
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: profile } = useProfile();
   const createProfile = useCreateProfile();
+  const updateProfile = useUpdateProfile();
   const createTrack = useCreateTrack();
   const startAssessment = useStartAssessment();
 
-  // If a profile already exists we are here to add a track, not to re-onboard.
-  const [step, setStep] = useState(profile ? 1 : 0);
+  const replay = new URLSearchParams(location.search).get("replay") === "1";
+  // A replay starts from the name step; normal visits with an existing profile
+  // start at topic selection so users can quickly add another track.
+  const [step, setStep] = useState(replay ? 0 : profile ? 1 : 0);
   const [topic, setTopic] = useState("");
 
+  useEffect(() => {
+    if (!replay && profile && step === 0) setStep(1);
+  }, [profile, replay, step]);
+
   const handleName = async (name: string) => {
-    await createProfile.mutateAsync(name);
+    if (profile) await updateProfile.mutateAsync({ name });
+    else await createProfile.mutateAsync(name);
     setStep(1);
   };
 
@@ -47,11 +56,15 @@ export default function OnboardingPage() {
     }
   };
 
-  const pending = createTrack.isPending || startAssessment.isPending;
+  const pending = createProfile.isPending || updateProfile.isPending || createTrack.isPending || startAssessment.isPending;
   const pendingLabel = startAssessment.isPending
     ? "Generating your assessment — this can take up to 30 seconds…"
     : "Setting up your track…";
-  const errorMessage = createTrack.error?.message ?? startAssessment.error?.message;
+  const errorMessage =
+    updateProfile.error?.message ??
+    createProfile.error?.message ??
+    createTrack.error?.message ??
+    startAssessment.error?.message;
 
   return (
     <div className="min-h-dvh bg-bg">

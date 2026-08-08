@@ -8,6 +8,7 @@ import { QuestionCard } from "@/components/assessment/QuestionCard";
 import { ResultSummary } from "@/components/assessment/ResultSummary";
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
+import { ErrorState, LoadingState } from "@/components/ui/AsyncState";
 import { Button } from "@/components/ui/button";
 import { useAssessment, useSaveAnswer, useSubmitAssessment } from "@/hooks/useAssessment";
 
@@ -16,21 +17,23 @@ export default function AssessmentPage() {
   const navigate = useNavigate();
   const assessmentId = Number(id);
 
-  const { data: assessment, isPending } = useAssessment(assessmentId);
+  const { data: assessment, isPending, error, refetch } = useAssessment(assessmentId);
   const saveAnswer = useSaveAnswer(assessmentId);
   const submitAssessment = useSubmitAssessment(assessmentId);
 
   const [index, setIndex] = useState(0);
   const [drafts, setDrafts] = useState<Record<number, string>>({});
 
-  if (isPending || !assessment) {
+  if (isPending) {
     return (
       <AppShell>
-        <div className="grid place-items-center py-24">
-          <Loader2 className="size-6 animate-spin text-text-muted" />
-        </div>
+        <LoadingState label="Loading assessment…" />
       </AppShell>
     );
+  }
+
+  if (error || !assessment) {
+    return <AppShell><ErrorState message={error instanceof Error ? error.message : "Assessment not found."} onRetry={() => void refetch()} /></AppShell>;
   }
 
   if (assessment.status === "completed") {
@@ -121,6 +124,8 @@ export default function AssessmentPage() {
           <Button onClick={goNext}>Next</Button>
         )}
       </div>
+      {saveAnswer.error && <p className="mt-3 text-sm text-danger">Could not save this answer. Try moving to another question again.</p>}
+      {submitAssessment.error && <p className="mt-3 text-sm text-danger">{submitAssessment.error instanceof Error ? submitAssessment.error.message : "Could not grade the assessment."}</p>}
     </AppShell>
   );
 }

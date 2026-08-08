@@ -1,15 +1,21 @@
-import { Loader2 } from "lucide-react";
-import { useParams } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { QuestionStage } from "@/components/interview/QuestionStage";
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
+import { ErrorState, LoadingState } from "@/components/ui/AsyncState";
 import { useInterview } from "@/hooks/useInterview";
 import { useInterviewMachine } from "@/hooks/useInterviewMachine";
 import type { Interview } from "@/types";
 
 function ActiveInterview({ interview }: { interview: Interview }) {
   const machine = useInterviewMachine(interview);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (machine.phase === "report") navigate(`/interview/${interview.id}/report`, { replace: true });
+  }, [interview.id, machine.phase, navigate]);
 
   return (
     <AppShell>
@@ -28,6 +34,15 @@ function ActiveInterview({ interview }: { interview: Interview }) {
         onBegin={machine.begin}
         onAdvance={machine.advance}
         onQuit={machine.quitNow}
+        onPreflightReady={machine.preflightReady}
+        terminationReason={machine.terminationReason}
+        videoRef={machine.videoRef}
+        cameraStatus={machine.cameraStatus}
+        faceCount={machine.faceCount}
+        micStatus={machine.micStatus}
+        preflightPassed={machine.preflightPassed}
+        warningCount={machine.warningCount}
+        recentEventType={machine.recentEventType}
       />
     </AppShell>
   );
@@ -36,16 +51,18 @@ function ActiveInterview({ interview }: { interview: Interview }) {
 export default function InterviewActivePage() {
   const { id } = useParams<{ id: string }>();
   const interviewId = Number(id);
-  const { data: interview, isPending } = useInterview(interviewId);
+  const { data: interview, isPending, error, refetch } = useInterview(interviewId);
 
-  if (isPending || !interview) {
+  if (isPending) {
     return (
       <AppShell>
-        <div className="grid place-items-center py-24">
-          <Loader2 className="size-6 animate-spin text-text-muted" />
-        </div>
+        <LoadingState label="Loading interview…" />
       </AppShell>
     );
+  }
+
+  if (error || !interview) {
+    return <AppShell><ErrorState message={error instanceof Error ? error.message : "Interview not found."} onRetry={() => void refetch()} /></AppShell>;
   }
 
   return <ActiveInterview interview={interview} />;

@@ -29,14 +29,15 @@ def test_intermediate_prompt_weights_toward_weaknesses():
     assert "oop" in prompt.user_content
 
 
-def test_schema_requires_phases_last_and_bounds_phase_count():
+def test_schema_requires_phases_last_and_prompt_preserves_phase_count_guidance():
     prompt = build_roadmap_prompt("Python", "beginner")
 
     keys = list(prompt.response_schema["properties"].keys())
     assert keys[-1] == "phases"
     phases_schema = prompt.response_schema["properties"]["phases"]
-    assert phases_schema["min_items"] == 4
-    assert phases_schema["max_items"] == 10
+    assert "min_items" not in phases_schema
+    assert "max_items" not in phases_schema
+    assert "4-10 learning phases" in prompt.user_content
 
 
 def test_module_schema_includes_kind_enum():

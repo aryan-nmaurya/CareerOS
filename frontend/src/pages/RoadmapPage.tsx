@@ -24,6 +24,7 @@ export default function RoadmapPage() {
 
   const roadmapMissing =
     roadmapQuery.error instanceof ApiError && roadmapQuery.error.code === "roadmap_not_found";
+  const hasRoadmap = Boolean(roadmapQuery.data);
 
   useEffect(() => {
     if (trackId !== null && roadmapMissing && stream.state.status === "idle") {
@@ -56,7 +57,10 @@ export default function RoadmapPage() {
     );
   }
 
-  if (stream.state.status === "streaming" || stream.state.status === "done") {
+  // `done` only means the SSE transaction committed. The saved roadmap is
+  // fetched immediately afterward; keep rendering the real page once that
+  // query succeeds instead of leaving the user on the generation screen.
+  if (stream.state.status === "streaming" && !hasRoadmap) {
     return (
       <AppShell>
         <TopBar title={`${track.topic} roadmap`} subtitle="Generating your personalized plan…" />
@@ -68,7 +72,7 @@ export default function RoadmapPage() {
     );
   }
 
-  if (stream.state.status === "error") {
+  if (stream.state.status === "error" && !hasRoadmap) {
     return (
       <AppShell>
         <TopBar title={`${track.topic} roadmap`} />

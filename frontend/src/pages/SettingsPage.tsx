@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
@@ -8,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useProfile, useUpdateProfile } from "@/hooks/useProfile";
 
 export default function SettingsPage() {
+  const navigate = useNavigate();
   const { data: profile } = useProfile();
   const updateProfile = useUpdateProfile();
   const [name, setName] = useState("");
@@ -43,6 +45,22 @@ export default function SettingsPage() {
             Save
           </Button>
         </div>
+        {updateProfile.error && <p className="mt-3 text-sm text-danger">{updateProfile.error instanceof Error ? updateProfile.error.message : "Could not save your profile."}</p>}
+      </Card>
+
+      <Card className="mt-4 max-w-md">
+        <CardTitle>Classroom demo</CardTitle>
+        <CardDescription className="mt-1">
+          Replay onboarding from the beginning and create a fresh active learning track. Existing
+          assessments and interviews stay in History.
+        </CardDescription>
+        <Button
+          className="mt-4"
+          variant="secondary"
+          onClick={() => navigate("/onboarding?replay=1")}
+        >
+          Replay onboarding
+        </Button>
       </Card>
     </AppShell>
   );

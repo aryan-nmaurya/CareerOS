@@ -125,6 +125,13 @@ export interface NextModule {
 
 export type InterviewLevel = "beginner" | "intermediate" | "advanced";
 export type InterviewStatus = "setup" | "active" | "completed" | "terminated";
+export type TerminationReason = "user_quit" | "proctoring";
+export type ProctoringEventType =
+  | "looking_away"
+  | "no_face"
+  | "multiple_faces"
+  | "excessive_noise"
+  | "background_voice";
 
 export interface InterviewQuestion {
   id: number;
@@ -133,6 +140,12 @@ export interface InterviewQuestion {
   expected_points: string[];
   transcript: string | null;
   answer_duration_s: number | null;
+  technical_score: number | null;
+  communication_score: number | null;
+  confidence_score: number | null;
+  missing_concepts: string[];
+  better_answer: string | null;
+  feedback: string | null;
 }
 
 export interface Interview {
@@ -144,6 +157,14 @@ export interface Interview {
   started_at: string;
   ended_at: string | null;
   termination_reason: string | null;
+  overall_score: number | null;
+  technical_score: number | null;
+  communication_score: number | null;
+  confidence_score: number | null;
+  strengths: string[];
+  weaknesses: string[];
+  recommendations: string[];
+  summary: string | null;
   questions: InterviewQuestion[];
 }
 
@@ -196,4 +217,12 @@ export interface RoadmapMeta {
   final_project: FinalProject | null;
 }
 
-export type MachinePhase = "briefing" | "speaking" | "answering" | "review";
+export type MachinePhase =
+  | "preflight"
+  | "briefing"
+  | "speaking"
+  | "answering"
+  | "review"
+  | "evaluating"
+  | "report"
+  | "terminated";

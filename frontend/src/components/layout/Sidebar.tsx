@@ -1,4 +1,4 @@
-import { LayoutDashboard, Map, MessageSquare, Settings } from "lucide-react";
+import { ClipboardList, LayoutDashboard, Map, MessageSquare, Settings } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { cn } from "@/lib/cn";
@@ -7,6 +7,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/roadmap", label: "Roadmap", icon: Map },
   { to: "/interview", label: "Interviews", icon: MessageSquare },
+  { to: "/history", label: "History", icon: ClipboardList },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

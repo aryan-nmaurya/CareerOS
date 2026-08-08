@@ -1,4 +1,4 @@
-import { Loader2, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
@@ -6,21 +6,24 @@ import { TopBar } from "@/components/layout/TopBar";
 import { ProgressRing } from "@/components/roadmap/ProgressRing";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
+import { ErrorState, LoadingState } from "@/components/ui/AsyncState";
 import { useDashboard } from "@/hooks/useDashboard";
 import { cn } from "@/lib/cn";
 
 export default function DashboardPage() {
-  const { data: dashboard, isPending } = useDashboard();
+  const { data: dashboard, isPending, error, refetch } = useDashboard();
   const navigate = useNavigate();
 
-  if (isPending || !dashboard) {
+  if (isPending) {
     return (
       <AppShell>
-        <div className="grid place-items-center py-24">
-          <Loader2 className="size-6 animate-spin text-text-muted" />
-        </div>
+        <LoadingState label="Loading dashboard…" />
       </AppShell>
     );
+  }
+
+  if (error || !dashboard) {
+    return <AppShell><ErrorState message={error instanceof Error ? error.message : "Dashboard unavailable."} onRetry={() => void refetch()} /></AppShell>;
   }
 
   const { profile, active_track: track, next_module: nextModule } = dashboard;

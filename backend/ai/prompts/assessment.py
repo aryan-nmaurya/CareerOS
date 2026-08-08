@@ -11,16 +11,12 @@ _QUESTION_ITEM_SCHEMA = {
         "options": {
             "type": "ARRAY",
             "items": {"type": "STRING"},
-            "min_items": 4,
-            "max_items": 4,
             "nullable": True,
         },
         "correct_option": {"type": "INTEGER", "nullable": True},
         "expected_points": {
             "type": "ARRAY",
             "items": {"type": "STRING"},
-            "min_items": 2,
-            "max_items": 4,
             "nullable": True,
         },
     },
@@ -68,9 +64,7 @@ def build_generation_prompt(topic: str, level: str) -> Prompt:
         "type": "OBJECT",
         "properties": {
             "questions": {
-                "type": "ARRAY",
-                "min_items": 8,
-                "max_items": 12,
+            "type": "ARRAY",
                 "items": _QUESTION_ITEM_SCHEMA,
             },
         },
@@ -121,9 +115,7 @@ def build_grading_prompt(
         "type": "OBJECT",
         "properties": {
             "gradings": {
-                "type": "ARRAY",
-                "min_items": len(items),
-                "max_items": len(items),
+            "type": "ARRAY",
                 "items": {
                     "type": "OBJECT",
                     "properties": {

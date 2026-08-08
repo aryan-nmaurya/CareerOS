@@ -38,6 +38,11 @@ class Interview(Base):
         cascade="all, delete-orphan",
         order_by="InterviewQuestion.order_index",
     )
+    events: Mapped[list["ProctoringEvent"]] = relationship(
+        back_populates="interview",
+        cascade="all, delete-orphan",
+        order_by="ProctoringEvent.created_at",
+    )
 
 
 class InterviewQuestion(Base):
@@ -62,3 +67,24 @@ class InterviewQuestion(Base):
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     interview: Mapped["Interview"] = relationship(back_populates="questions")
+
+
+class ProctoringEvent(Base):
+    """One flagged moment during a proctored interview."""
+
+    __tablename__ = "proctoring_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    interview_id: Mapped[int] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE")
+    )
+    question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interview_questions.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    type: Mapped[str] = mapped_column(String(32), nullable=False)
+    severity: Mapped[str] = mapped_column(String(8), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    warning_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    interview: Mapped["Interview"] = relationship(back_populates="events")

@@ -49,7 +49,10 @@ _PHASE_SCHEMA = {
         "description": {"type": "STRING"},
         "goal": {"type": "STRING"},
         "estimated_hours": {"type": "INTEGER"},
-        "modules": {"type": "ARRAY", "min_items": 2, "max_items": 8, "items": _MODULE_SCHEMA},
+        # Gemma 4 rejects minItems/maxItems in response schemas. The same
+        # bounds remain in _SYSTEM and user_content so the model still gets
+        # explicit cardinality guidance.
+        "modules": {"type": "ARRAY", "items": _MODULE_SCHEMA},
     },
     "required": ["title", "description", "goal", "estimated_hours", "modules"],
 }
@@ -86,7 +89,7 @@ _ROADMAP_SCHEMA = {
         # this lets the SSE parser emit `meta` with complete data before the
         # first phase arrives. Verified against a live streaming call before
         # this schema was written — see this plan's header.
-        "phases": {"type": "ARRAY", "min_items": 4, "max_items": 10, "items": _PHASE_SCHEMA},
+        "phases": {"type": "ARRAY", "items": _PHASE_SCHEMA},
     },
     "required": [
         "title",

@@ -3,7 +3,13 @@ from sqlalchemy.orm import Session
 
 from ai.client import AIClient, get_ai_client
 from db.session import get_db
-from schemas.interview import AnswerSave, InterviewOut, StartInterview
+from schemas.interview import (
+    AnswerSave,
+    InterviewOut,
+    ProctoringEventIn,
+    ProctoringEventOut,
+    StartInterview,
+)
 from services import interview_service
 from services.interview_service import (
     InterviewNotActiveError,
@@ -82,9 +88,13 @@ def save_answer(
 
 
 @router.post("/api/interviews/{interview_id}/submit", response_model=InterviewOut)
-def submit_interview(interview_id: int, db: Session = Depends(get_db)):
+def submit_interview(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    ai_client: AIClient = Depends(get_ai_client),
+):
     try:
-        interview = interview_service.complete_interview(db, interview_id)
+        interview = interview_service.complete_interview(db, ai_client, interview_id)
         return interview_service.to_interview_out(interview)
     except InterviewNotFoundError:
         raise _INTERVIEW_MISSING
@@ -101,3 +111,26 @@ def quit_interview(interview_id: int, db: Session = Depends(get_db)):
         raise _INTERVIEW_MISSING
     except InterviewNotActiveError:
         raise _NOT_ACTIVE
+
+
+@router.post("/api/interviews/{interview_id}/events", response_model=ProctoringEventOut)
+def record_event(
+    interview_id: int,
+    payload: ProctoringEventIn,
+    db: Session = Depends(get_db),
+):
+    try:
+        result = interview_service.record_event(db, interview_id, payload.type, payload.detail)
+        return ProctoringEventOut(
+            warning_count=result.warning_count,
+            should_terminate=result.should_terminate,
+        )
+    except InterviewNotFoundError:
+        raise _INTERVIEW_MISSING
+    except InterviewNotActiveError:
+        raise _NOT_ACTIVE
+
+
+@router.get("/api/interviews", response_model=list[InterviewOut])
+def list_interviews(db: Session = Depends(get_db)):
+    return [interview_service.to_interview_out(i) for i in interview_service.list_all_interviews(db, limit=100)]

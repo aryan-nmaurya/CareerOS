@@ -1,27 +1,27 @@
-import { Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { TopBar } from "@/components/layout/TopBar";
+import { ErrorState, LoadingState } from "@/components/ui/AsyncState";
 import { SetupForm } from "@/components/interview/SetupForm";
 import { useStartInterview } from "@/hooks/useInterview";
 import { useActiveTrack } from "@/hooks/useProfile";
 import type { InterviewLevel } from "@/types";
 
 export default function InterviewSetupPage() {
-  const { data: track, isPending } = useActiveTrack();
+  const { data: track, isPending, error, refetch } = useActiveTrack();
   const startInterview = useStartInterview();
   const navigate = useNavigate();
 
   if (isPending) {
     return (
       <AppShell>
-        <div className="grid place-items-center py-24">
-          <Loader2 className="size-6 animate-spin text-text-muted" />
-        </div>
+        <LoadingState label="Loading interview setup…" />
       </AppShell>
     );
   }
+
+  if (error) return <AppShell><ErrorState message={error instanceof Error ? error.message : "Could not load the active track."} onRetry={() => void refetch()} /></AppShell>;
 
   if (!track) {
     return (

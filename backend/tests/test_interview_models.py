@@ -1,4 +1,4 @@
-from models.interview import Interview, InterviewQuestion
+from models.interview import Interview, InterviewQuestion, ProctoringEvent
 from models.user import LearningTrack
 from schemas.profile import ProfileCreate, TrackCreate
 from services import profile_service
@@ -72,3 +72,24 @@ def test_status_and_termination_fields(db_session):
     assert interview.status == "terminated"
     assert interview.termination_reason == "user_quit"
     assert interview.ended_at is None
+
+
+def test_proctoring_event_round_trip_and_cascade(db_session):
+    track = _track(db_session)
+    interview = Interview(track_id=track.id, level="intermediate", question_count=5, status="active")
+    db_session.add(interview)
+    db_session.commit()
+    event = ProctoringEvent(
+        interview_id=interview.id,
+        type="multiple_faces",
+        severity="fatal",
+        detail="2 faces detected",
+    )
+    db_session.add(event)
+    db_session.commit()
+    assert interview.events == [event]
+    assert event.warning_index is None
+    event_id = event.id
+    db_session.delete(interview)
+    db_session.commit()
+    assert db_session.get(ProctoringEvent, event_id) is None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -8,7 +9,8 @@ from sqlalchemy.orm import Session
 from ai.client import AIClient
 from ai.errors import AIInvalidResponse
 from ai.prompts.interview import build_interview_prompt
-from models.interview import Interview, InterviewQuestion
+from ai.prompts.evaluation import build_evaluation_prompt
+from models.interview import Interview, InterviewQuestion, ProctoringEvent
 from schemas.interview import InterviewOut, InterviewQuestionOut
 from services import profile_service, roadmap_service
 from services.progress_service import current_phase_index
@@ -25,6 +27,16 @@ class QuestionNotFoundError(Exception):
 
 class InterviewNotActiveError(Exception):
     pass
+
+
+_FATAL_EVENT_TYPES = frozenset({"multiple_faces"})
+_TERMINATION_WARNING_THRESHOLD = 3
+
+
+@dataclass(frozen=True)
+class EventResult:
+    warning_count: int
+    should_terminate: bool
 
 
 def _roadmap_context(roadmap) -> list[str] | None:
@@ -118,10 +130,52 @@ def list_interviews(db: Session, track_id: int, limit: int = 3) -> list[Intervie
     )
 
 
-def complete_interview(db: Session, interview_id: int) -> Interview:
+def list_all_interviews(db: Session, limit: int = 100) -> list[Interview]:
+    return list(
+        db.scalars(
+            select(Interview)
+            .order_by(Interview.started_at.desc(), Interview.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+def complete_interview(
+    db: Session, ai_client: AIClient, interview_id: int
+) -> Interview:
     interview = get_interview(db, interview_id)
     if interview.status != "active":
         raise InterviewNotActiveError
+
+    items = [
+        (q.question, q.expected_points, q.transcript, q.answer_duration_s)
+        for q in interview.questions
+    ]
+    result = ai_client.generate_json(
+        build_evaluation_prompt(interview.track.topic, interview.level, items)
+    )
+    gradings = result.get("questions", [])
+    if len(gradings) != len(interview.questions):
+        raise AIInvalidResponse(
+            f"Expected {len(interview.questions)} interview gradings, got {len(gradings)}"
+        )
+
+    for question, grading in zip(interview.questions, gradings):
+        question.technical_score = float(grading["technical_score"])
+        question.communication_score = float(grading["communication_score"])
+        question.confidence_score = float(grading["confidence_score"])
+        question.missing_concepts = grading.get("missing_concepts", [])
+        question.better_answer = grading.get("better_answer")
+        question.feedback = grading.get("feedback", "")
+
+    interview.overall_score = float(result["overall_score"])
+    interview.technical_score = float(result["technical_score"])
+    interview.communication_score = float(result["communication_score"])
+    interview.confidence_score = float(result["confidence_score"])
+    interview.strengths = result.get("strengths", [])
+    interview.weaknesses = result.get("weaknesses", [])
+    interview.recommendations = result.get("recommendations", [])
+    interview.summary = result.get("summary", "")
     interview.status = "completed"
     interview.ended_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
@@ -137,6 +191,12 @@ def _question_out(question: InterviewQuestion) -> InterviewQuestionOut:
         expected_points=question.expected_points,
         transcript=question.transcript,
         answer_duration_s=question.answer_duration_s,
+        technical_score=question.technical_score,
+        communication_score=question.communication_score,
+        confidence_score=question.confidence_score,
+        missing_concepts=question.missing_concepts,
+        better_answer=question.better_answer,
+        feedback=question.feedback,
     )
 
 
@@ -150,6 +210,14 @@ def to_interview_out(interview: Interview) -> InterviewOut:
         started_at=interview.started_at,
         ended_at=interview.ended_at,
         termination_reason=interview.termination_reason,
+        overall_score=interview.overall_score,
+        technical_score=interview.technical_score,
+        communication_score=interview.communication_score,
+        confidence_score=interview.confidence_score,
+        strengths=interview.strengths,
+        weaknesses=interview.weaknesses,
+        recommendations=interview.recommendations,
+        summary=interview.summary,
         questions=[_question_out(q) for q in interview.questions],
     )
 
@@ -164,3 +232,32 @@ def quit_interview(db: Session, interview_id: int) -> Interview:
     db.commit()
     db.refresh(interview)
     return interview
+
+
+def record_event(db: Session, interview_id: int, event_type: str, detail: str) -> EventResult:
+    interview = get_interview(db, interview_id)
+    if interview.status != "active":
+        raise InterviewNotActiveError
+
+    severity = "fatal" if event_type in _FATAL_EVENT_TYPES else "warning"
+    warning_index = None
+    if severity == "warning":
+        interview.warning_count += 1
+        warning_index = interview.warning_count
+
+    should_terminate = severity == "fatal" or interview.warning_count >= _TERMINATION_WARNING_THRESHOLD
+    db.add(
+        ProctoringEvent(
+            interview_id=interview.id,
+            type=event_type,
+            severity=severity,
+            detail=detail,
+            warning_index=warning_index,
+        )
+    )
+    if should_terminate:
+        interview.status = "terminated"
+        interview.termination_reason = "proctoring"
+        interview.ended_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+    return EventResult(interview.warning_count, should_terminate)

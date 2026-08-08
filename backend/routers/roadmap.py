@@ -34,6 +34,16 @@ def generate_roadmap(
     ai_client: AIClient = Depends(get_ai_client),
 ):
     def event_stream():
+        # A client can reconnect after the model has finished but before the
+        # final SSE frame reaches it. Do not spend another model call or
+        # overwrite a completed roadmap in that case.
+        try:
+            existing = roadmap_service.get_roadmap_by_track(db, track_id)
+        except RoadmapNotFoundError:
+            existing = None
+        if existing is not None:
+            yield _format_sse("done", {"roadmap_id": existing.id})
+            return
         for event, data in roadmap_service.stream_roadmap(db, ai_client, track_id):
             yield _format_sse(event, data)
 

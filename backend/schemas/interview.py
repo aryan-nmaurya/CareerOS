@@ -5,6 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 InterviewLevel = Literal["beginner", "intermediate", "advanced"]
 InterviewStatus = Literal["setup", "active", "completed", "terminated"]
+ProctoringEventType = Literal[
+    "looking_away", "no_face", "multiple_faces", "excessive_noise", "background_voice"
+]
 
 
 class InterviewQuestionOut(BaseModel):
@@ -16,6 +19,12 @@ class InterviewQuestionOut(BaseModel):
     expected_points: list[str]
     transcript: str | None
     answer_duration_s: int | None
+    technical_score: float | None
+    communication_score: float | None
+    confidence_score: float | None
+    missing_concepts: list[str]
+    better_answer: str | None
+    feedback: str | None
 
 
 class InterviewOut(BaseModel):
@@ -29,6 +38,14 @@ class InterviewOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
     termination_reason: str | None
+    overall_score: float | None
+    technical_score: float | None
+    communication_score: float | None
+    confidence_score: float | None
+    strengths: list[str]
+    weaknesses: list[str]
+    recommendations: list[str]
+    summary: str | None
     questions: list[InterviewQuestionOut]
 
 
@@ -40,3 +57,13 @@ class StartInterview(BaseModel):
 class AnswerSave(BaseModel):
     transcript: str
     duration_s: int = Field(ge=0)
+
+
+class ProctoringEventIn(BaseModel):
+    type: ProctoringEventType
+    detail: str = ""
+
+
+class ProctoringEventOut(BaseModel):
+    warning_count: int
+    should_terminate: bool

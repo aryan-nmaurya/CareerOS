@@ -32,9 +32,10 @@ def test_no_roadmap_context_omits_the_context_line():
     assert "studying" not in prompt.user_content.lower()
 
 
-def test_schema_bounds_question_count_exactly():
+def test_schema_keeps_exact_question_count_guidance_outside_gemma_schema():
     prompt = build_interview_prompt("Python", "intermediate", 6)
 
     questions_schema = prompt.response_schema["properties"]["questions"]
-    assert questions_schema["min_items"] == 6
-    assert questions_schema["max_items"] == 6
+    assert "min_items" not in questions_schema
+    assert "max_items" not in questions_schema
+    assert "exactly 6 questions" in prompt.user_content

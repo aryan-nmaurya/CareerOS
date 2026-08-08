@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { dashboardKey } from "@/hooks/useDashboard";
 import {
   getInterview,
+  listInterviews,
   quitInterview,
+  recordEvent,
   saveInterviewAnswer,
   startInterview,
   submitInterview,
@@ -67,4 +69,15 @@ export function useQuitInterview(interviewId: number) {
       queryClient.invalidateQueries({ queryKey: dashboardKey });
     },
   });
+}
+
+export function useRecordEvent(interviewId: number) {
+  return useMutation({
+    mutationFn: ({ type, detail }: { type: Parameters<typeof recordEvent>[1]; detail: string }) =>
+      recordEvent(interviewId, type, detail),
+  });
+}
+
+export function useInterviews() {
+  return useQuery({ queryKey: ["interviews"], queryFn: listInterviews });
 }

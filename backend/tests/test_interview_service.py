@@ -25,6 +25,30 @@ def _generation_response(count=5):
     }
 
 
+def _evaluation_response(count=5):
+    return {
+        "questions": [
+            {
+                "technical_score": 7,
+                "communication_score": 8,
+                "confidence_score": 6,
+                "missing_concepts": [],
+                "better_answer": "A stronger answer.",
+                "feedback": "Good answer.",
+            }
+            for _ in range(count)
+        ],
+        "overall_score": 70,
+        "technical_score": 70,
+        "communication_score": 80,
+        "confidence_score": 60,
+        "strengths": ["clear explanations"],
+        "weaknesses": ["edge cases"],
+        "recommendations": ["Practice trade-offs."],
+        "summary": "Solid attempt.",
+    }
+
+
 _ROADMAP_CHUNKS = [
     '{"title": "Python Roadmap", "summary": "S", "total_weeks": 4, "weekly_hours": 5, ',
     '"weekly_goals": [], "final_project": {"title": "F", "description": "D", "skills_demonstrated": []}, ',
@@ -125,8 +149,9 @@ def test_complete_interview_marks_completed_without_requiring_transcripts(db_ses
     track = _track(db_session)
     fake_ai.queue_response(_generation_response(5))
     interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+    fake_ai.queue_response(_evaluation_response(5))
 
-    completed = interview_service.complete_interview(db_session, interview.id)
+    completed = interview_service.complete_interview(db_session, fake_ai, interview.id)
 
     assert completed.status == "completed"
     assert completed.ended_at is not None
@@ -136,10 +161,11 @@ def test_complete_interview_on_non_active_raises(db_session, fake_ai):
     track = _track(db_session)
     fake_ai.queue_response(_generation_response(5))
     interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
-    interview_service.complete_interview(db_session, interview.id)
+    fake_ai.queue_response(_evaluation_response(5))
+    interview_service.complete_interview(db_session, fake_ai, interview.id)
 
     with pytest.raises(interview_service.InterviewNotActiveError):
-        interview_service.complete_interview(db_session, interview.id)
+        interview_service.complete_interview(db_session, fake_ai, interview.id)
 
 
 def test_quit_interview_marks_terminated_with_reason(db_session, fake_ai):
@@ -174,3 +200,23 @@ def test_list_interviews_orders_most_recent_first_and_respects_limit(db_session,
 
     assert len(listed) == 2
     assert listed[0].id > listed[1].id
+
+
+def test_record_event_uses_server_warning_policy(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(5))
+    interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+
+    first = interview_service.record_event(db_session, interview.id, "looking_away", "yaw 30")
+    second = interview_service.record_event(db_session, interview.id, "no_face", "no face")
+    fatal = interview_service.record_event(db_session, interview.id, "multiple_faces", "2 faces")
+
+    assert first.warning_count == 1 and not first.should_terminate
+    assert second.warning_count == 2 and not second.should_terminate
+    assert fatal.warning_count == 2 and fatal.should_terminate
+    db_session.refresh(interview)
+    assert interview.status == "terminated"
+    assert interview.events[-1].severity == "fatal"
+
+    with pytest.raises(interview_service.InterviewNotActiveError):
+        interview_service.record_event(db_session, interview.id, "no_face", "late")

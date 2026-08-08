@@ -39,7 +39,12 @@ class GeminiClient:
                     response_schema=prompt.response_schema,
                     temperature=prompt.temperature,
                     max_output_tokens=prompt.max_output_tokens,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                    # Gemma 4 uses thinking levels rather than the legacy
+                    # numeric thinking budget. Minimal disables reasoning and
+                    # keeps the request within the model's lower-cost path.
+                    thinking_config=types.ThinkingConfig(
+                        thinking_level=types.ThinkingLevel.MINIMAL
+                    ),
                 ),
             )
             if not response.text:
@@ -71,10 +76,12 @@ class GeminiClient:
                     response_schema=prompt.response_schema,
                     temperature=prompt.temperature,
                     max_output_tokens=prompt.max_output_tokens,
-                    # Thinking stays enabled here, unlike generate_json — the
-                    # spec calls for it on roadmap generation specifically,
-                    # since it's a much harder generation task than a single
-                    # assessment-grading extraction.
+                    # Use Gemma 4's supported thinking-level control. Keeping
+                    # it minimal avoids the quota cost of hidden reasoning
+                    # tokens during roadmap streaming.
+                    thinking_config=types.ThinkingConfig(
+                        thinking_level=types.ThinkingLevel.MINIMAL
+                    ),
                 ),
             )
 
