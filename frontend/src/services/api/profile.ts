@@ -16,3 +16,5 @@ export const createTrack = (topic: string, experienceLevel: ExperienceLevel) =>
     method: "POST",
     body: JSON.stringify({ topic, experience_level: experienceLevel }),
   });
+
+export const deleteProfile = () => api<null>("/api/profile", { method: "DELETE" });

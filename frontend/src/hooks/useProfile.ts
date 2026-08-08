@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createProfile,
   createTrack,
+  deleteProfile,
   getProfile,
   listTracks,
   updateProfile,
@@ -52,5 +53,13 @@ export function useCreateTrack() {
       experienceLevel: ExperienceLevel;
     }) => createTrack(topic, experienceLevel),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: tracksKey }),
+  });
+}
+
+export function useDeleteProfile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: deleteProfile,
+    onSuccess: () => queryClient.clear(),
   });
 }

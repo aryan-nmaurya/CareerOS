@@ -1,3 +1,4 @@
+import { LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -6,12 +7,14 @@ import { TopBar } from "@/components/layout/TopBar";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { useProfile, useUpdateProfile } from "@/hooks/useProfile";
+import { useDeleteProfile, useProfile, useUpdateProfile } from "@/hooks/useProfile";
+import { signOut } from "@/lib/demoAuth";
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   const { data: profile } = useProfile();
   const updateProfile = useUpdateProfile();
+  const deleteProfile = useDeleteProfile();
   const [name, setName] = useState("");
 
   useEffect(() => {
@@ -20,6 +23,16 @@ export default function SettingsPage() {
 
   const trimmed = name.trim();
   const dirty = Boolean(trimmed) && trimmed !== profile?.name;
+
+  const handleSignOut = () => {
+    if (!window.confirm("This deletes all data and signs out. Continue?")) return;
+    deleteProfile.mutate(undefined, {
+      onSuccess: () => {
+        signOut();
+        navigate("/signup");
+      },
+    });
+  };
 
   return (
     <AppShell>
@@ -61,6 +74,22 @@ export default function SettingsPage() {
         >
           Replay onboarding
         </Button>
+      </Card>
+
+      <Card className="mt-4 max-w-md">
+        <CardTitle>Sign out</CardTitle>
+        <CardDescription className="mt-1">
+          Deletes your profile, tracks, roadmap, assessments, and interviews, and returns to the
+          sign-up screen.
+        </CardDescription>
+        <Button className="mt-4" variant="secondary" onClick={handleSignOut}>
+          <LogOut className="size-4" /> Sign out
+        </Button>
+        {deleteProfile.error && (
+          <p className="mt-3 text-sm text-danger">
+            {deleteProfile.error instanceof Error ? deleteProfile.error.message : "Could not sign out."}
+          </p>
+        )}
       </Card>
     </AppShell>
   );
