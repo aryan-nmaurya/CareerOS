@@ -2,6 +2,7 @@ import { Loader2 } from "lucide-react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { useProfile } from "@/hooks/useProfile";
+import { isSignedIn } from "@/lib/demoAuth";
 import AssessmentPage from "@/pages/AssessmentPage";
 import DashboardPage from "@/pages/DashboardPage";
 import InterviewActivePage from "@/pages/InterviewActivePage";
@@ -11,10 +12,20 @@ import HistoryPage from "@/pages/HistoryPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import RoadmapPage from "@/pages/RoadmapPage";
 import SettingsPage from "@/pages/SettingsPage";
+import SignUpPage from "@/pages/SignUpPage";
 
 export default function App() {
   const { data: profile, isPending } = useProfile();
   const location = useLocation();
+
+  // Not signed in means the demo gate is the only reachable screen. This
+  // check runs before useProfile's isPending, deliberately — someone who
+  // isn't signed in shouldn't wait on (or care about) a profile fetch at
+  // all before seeing the gate.
+  if (!isSignedIn()) {
+    if (location.pathname !== "/signup") return <Navigate to="/signup" replace />;
+    return <SignUpPage />;
+  }
 
   if (isPending) {
     return (
