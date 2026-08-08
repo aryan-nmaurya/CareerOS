@@ -1,7 +1,12 @@
-// Use IPv4 by default. On some classroom machines, `localhost` resolves to
-// IPv6 (::1) while Uvicorn is listening on 127.0.0.1, which surfaces as the
-// browser's unhelpful "Failed to fetch" error.
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+// Local dev sets VITE_API_BASE_URL explicitly (frontend/.env) to reach the
+// standalone Uvicorn server on a different origin. Unset — as in production,
+// where frontend and backend are one Vercel "services" deployment on a
+// single origin — this defaults to "", making every call a same-origin
+// relative request (e.g. "/api/profile") that Vercel's own rewrite routes
+// to the backend service. It must never fall back to a hardcoded localhost
+// URL: that would silently point a real deployment at the visitor's own
+// machine instead of erroring.
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
   constructor(
