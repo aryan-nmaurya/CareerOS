@@ -45,7 +45,7 @@
 - Test: `backend/tests/test_profile_service.py`
 - Test: `backend/tests/test_api_smoke.py`
 
-- [ ] **Step 1: Write the failing service tests**
+- [x] **Step 1: Write the failing service tests**
 
 Append to `backend/tests/test_profile_service.py`:
 
@@ -120,12 +120,12 @@ def test_delete_profile_when_none_exists_is_a_noop(db_session):
 and returns the `User`); `TrackCreate` is already imported here too, used
 by the existing track-lifecycle tests further down the file.
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_profile_service.py -k delete_profile -v`
 Expected: FAIL — `AttributeError: module 'services.profile_service' has no attribute 'delete_profile'`
 
-- [ ] **Step 3: Add `delete_profile` to `backend/services/profile_service.py`**
+- [x] **Step 3: Add `delete_profile` to `backend/services/profile_service.py`**
 
 Append at the end of the file:
 
@@ -142,12 +142,12 @@ def delete_profile(db: Session) -> None:
     db.commit()
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_profile_service.py -k delete_profile -v`
 Expected: PASS — `2 passed`
 
-- [ ] **Step 5: Write the failing API tests**
+- [x] **Step 5: Write the failing API tests**
 
 Append to `backend/tests/test_api_smoke.py`:
 
@@ -167,12 +167,12 @@ def test_delete_profile_when_none_exists_still_returns_204(client):
     assert response.status_code == 204
 ```
 
-- [ ] **Step 6: Run tests to verify they fail**
+- [x] **Step 6: Run tests to verify they fail**
 
 Run: `cd backend && .venv/bin/pytest tests/test_api_smoke.py -k delete_profile -v`
 Expected: FAIL — `405 Method Not Allowed` (no DELETE route yet)
 
-- [ ] **Step 7: Add the route to `backend/routers/profile.py`**
+- [x] **Step 7: Add the route to `backend/routers/profile.py`**
 
 Append at the end of the file:
 
@@ -182,12 +182,12 @@ def delete_profile(db: Session = Depends(get_db)):
     profile_service.delete_profile(db)
 ```
 
-- [ ] **Step 8: Run tests to verify they pass**
+- [x] **Step 8: Run tests to verify they pass**
 
 Run: `cd backend && .venv/bin/pytest tests/test_profile_service.py tests/test_api_smoke.py -v`
 Expected: PASS, all green
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/services/profile_service.py backend/routers/profile.py backend/tests/test_profile_service.py backend/tests/test_api_smoke.py
@@ -206,7 +206,7 @@ Pure — no React, no network. `App.tsx`, `SignUpPage.tsx`, and
 `SettingsPage.tsx` will all import from here rather than each touching
 `localStorage` directly.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `frontend/src/lib/__tests__/demoAuth.test.ts`:
 
@@ -237,12 +237,12 @@ describe("demoAuth", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cd frontend && npx vitest run src/lib/__tests__/demoAuth.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/demoAuth'`
 
-- [ ] **Step 3: Write `frontend/src/lib/demoAuth.ts`**
+- [x] **Step 3: Write `frontend/src/lib/demoAuth.ts`**
 
 ```typescript
 const SIGNED_IN_KEY = "careeros_signed_in";
@@ -263,12 +263,12 @@ export function signOut(): void {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cd frontend && npx vitest run src/lib/__tests__/demoAuth.test.ts`
 Expected: PASS — `3 passed`
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/lib/demoAuth.ts frontend/src/lib/__tests__/demoAuth.test.ts
@@ -283,7 +283,7 @@ git commit -m "feat(frontend): add demo auth gate helpers"
 - Create: `frontend/src/pages/SignUpPage.tsx`
 - Modify: `frontend/src/App.tsx`
 
-- [ ] **Step 1: Write `frontend/src/pages/SignUpPage.tsx`**
+- [x] **Step 1: Write `frontend/src/pages/SignUpPage.tsx`**
 
 ```tsx
 import { useNavigate } from "react-router-dom";
@@ -355,7 +355,7 @@ Both fields are `readOnly` — the button signs in unconditionally regardless
 of field contents (there's nothing to validate against, per the design),
 so leaving them editable would misleadingly suggest otherwise.
 
-- [ ] **Step 2: Replace `frontend/src/App.tsx` entirely**
+- [x] **Step 2: Replace `frontend/src/App.tsx` entirely**
 
 ```tsx
 import { Loader2 } from "lucide-react";
@@ -424,12 +424,12 @@ route and bounces to `/`, the same way any other unrecognized path does —
 adding a matching `<Route>` here would instead let a signed-in visitor see
 the gate screen again, which isn't the intent.
 
-- [ ] **Step 3: Typecheck and build**
+- [x] **Step 3: Typecheck and build**
 
 Run: `cd frontend && npx tsc -b --noEmit && npm run build`
 Expected: both clean
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add frontend/src/pages/SignUpPage.tsx frontend/src/App.tsx
@@ -449,7 +449,7 @@ No new test file — these are thin API/mutation/UI wiring, the same
 untested-wrapper category as `useCreateProfile`/`useUpdateProfile` already
 in this codebase. Covered by Task 5's live E2E pass instead.
 
-- [ ] **Step 1: Add `deleteProfile` to `frontend/src/services/api/profile.ts`**
+- [x] **Step 1: Add `deleteProfile` to `frontend/src/services/api/profile.ts`**
 
 Append:
 
@@ -457,7 +457,7 @@ Append:
 export const deleteProfile = () => api<null>("/api/profile", { method: "DELETE" });
 ```
 
-- [ ] **Step 2: Add `useDeleteProfile` to `frontend/src/hooks/useProfile.ts`**
+- [x] **Step 2: Add `useDeleteProfile` to `frontend/src/hooks/useProfile.ts`**
 
 Add `deleteProfile` to the existing import from `@/services/api/profile`
 (currently `createProfile, createTrack, getProfile, listTracks,
@@ -480,7 +480,7 @@ can flash on screen after the underlying data is gone. Clearing the
 Step 3, not here — those are routing concerns, not cache concerns, and
 every other mutation hook in this file keeps that same separation.
 
-- [ ] **Step 3: Replace `frontend/src/pages/SettingsPage.tsx` entirely**
+- [x] **Step 3: Replace `frontend/src/pages/SettingsPage.tsx` entirely**
 
 ```tsx
 import { LogOut } from "lucide-react";
@@ -581,14 +581,14 @@ export default function SettingsPage() {
 }
 ```
 
-- [ ] **Step 4: Typecheck, build, run the full frontend test suite**
+- [x] **Step 4: Typecheck, build, run the full frontend test suite**
 
 Run: `cd frontend && npx tsc -b --noEmit && npm run build && npm test`
 Expected: all clean, `28 passed` — 25 currently passing (verified live
 before this plan was written) + 3 from this plan's `demoAuth.test.ts`,
 no regressions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/services/api/profile.ts frontend/src/hooks/useProfile.ts frontend/src/pages/SettingsPage.tsx
@@ -601,12 +601,12 @@ git commit -m "feat(frontend): add sign-out — deletes all data, returns to sig
 
 **Files:** none — verification only.
 
-- [ ] **Step 1: Start both servers**
+- [x] **Step 1: Start both servers**
 
 Backend: `cd backend && .venv/bin/uvicorn main:app --reload`
 Frontend: `cd frontend && npm run dev`
 
-- [ ] **Step 2: Clear state and confirm the gate blocks everything**
+- [x] **Step 2: Clear state and confirm the gate blocks everything**
 
 In the browser, clear `localStorage` for the dev origin (devtools →
 Application → Local Storage → clear) and clear `backend/careeros.db` if it
@@ -621,20 +621,20 @@ is reachable). Then:
 - Confirm the email field shows `demo@careeros.app`, the password field is
   masked, and `Demo password: CareerOS#2026` is visible underneath it.
 
-- [ ] **Step 3: Sign up and confirm the handoff to onboarding**
+- [x] **Step 3: Sign up and confirm the handoff to onboarding**
 
 Click "Sign up". Expect a redirect to `/onboarding` (no profile exists
 yet, so the existing onboarding gate takes over correctly). Complete
 onboarding far enough to reach the dashboard (name + topic + level is
 enough; the assessment/roadmap steps aren't this plan's concern).
 
-- [ ] **Step 4: Confirm signed-in state survives a reload**
+- [x] **Step 4: Confirm signed-in state survives a reload**
 
 Reload the page while on the dashboard. Expect to land back on the
 dashboard, not bounced to `/signup` — confirms the `localStorage` flag
 persists across reloads, not just client-side navigation.
 
-- [ ] **Step 5: Sign out and confirm the full wipe**
+- [x] **Step 5: Sign out and confirm the full wipe**
 
 Go to `/settings`, click "Sign out". Expect a native browser confirm
 dialog. Confirm it. Expect an immediate redirect to `/signup`.
@@ -644,8 +644,34 @@ again (click "Sign up") and confirm you land on `/onboarding` again, not
 the dashboard — if any profile data had survived, the app would instead
 show the dashboard directly, which would mean the delete silently failed.
 
-- [ ] **Step 6: Record results**
+- [x] **Step 6: Record results**
 
 Note any deviations from the above in this task's own text before
 marking it complete — this plan's whole point is a demo reset flow, so a
 step that doesn't behave as described here is a real bug, not a nitpick.
+
+**Actual results (live-verified):** Everything behaved exactly as
+designed — no product bugs found. `/onboarding`, `/settings`, and
+`/history` all correctly bounced to `/signup` before signing in; the
+pre-filled fields matched `DEMO_EMAIL`/`DEMO_PASSWORD` exactly (verified
+by reading the live DOM, not just visually). The dev database already had
+leftover data from earlier manual testing (a profile named "Kavnain"),
+so the run order came out as sign-out → verify-wipe → sign-up →
+onboarding instead of the plan's assumed clean-start order — same
+coverage, just sequenced around the pre-existing state instead of wiping
+it first. `DELETE /api/profile` returned a real 204 and a subsequent
+`GET /api/profile` returned 204 (no profile) — confirmed via the network
+log, not inferred from the redirect alone. Signing back in afterward
+landed on `/onboarding` rather than the dashboard, which is the real
+proof the wipe was complete rather than cosmetic. A hard reload on
+`/onboarding` while signed in stayed put rather than bouncing to
+`/signup`, confirming the `localStorage` flag persists across reloads.
+
+One environment-only note, not a product bug: this session's browser
+automation tool auto-dismisses native `window.confirm()` dialogs as
+Cancel by default (no `DELETE` request fired on the first click). Verified
+by overriding `window.confirm` to return `true` before retrying — the
+second click fired the real delete immediately, confirming `handleSignOut`
+itself was correct all along and the dialog was the only thing this
+particular tool couldn't drive. A real user clicking "OK" in an actual
+browser is unaffected.
