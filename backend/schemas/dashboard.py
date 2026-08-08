@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 from schemas.profile import ProfileOut, TrackOut
@@ -10,6 +12,13 @@ class NextModuleOut(BaseModel):
     phase_title: str
 
 
+class RecentInterviewOut(BaseModel):
+    id: int
+    level: str
+    status: str
+    started_at: datetime
+
+
 class DashboardOut(BaseModel):
     profile: ProfileOut | None
     active_track: TrackOut | None
@@ -19,4 +28,4 @@ class DashboardOut(BaseModel):
     remaining_modules: int
     completion_pct: float
     next_module: NextModuleOut | None
-    recent_interviews: list = []
+    recent_interviews: list[RecentInterviewOut] = []

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ai.client import AIClient
@@ -16,6 +19,10 @@ class InterviewNotFoundError(Exception):
 
 
 class QuestionNotFoundError(Exception):
+    pass
+
+
+class InterviewNotActiveError(Exception):
     pass
 
 
@@ -97,3 +104,37 @@ def record_answer(
     question.transcript = transcript
     question.answer_duration_s = duration_s
     db.commit()
+
+
+def list_interviews(db: Session, track_id: int, limit: int = 3) -> list[Interview]:
+    return list(
+        db.scalars(
+            select(Interview)
+            .where(Interview.track_id == track_id)
+            .order_by(Interview.started_at.desc(), Interview.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+def complete_interview(db: Session, interview_id: int) -> Interview:
+    interview = get_interview(db, interview_id)
+    if interview.status != "active":
+        raise InterviewNotActiveError
+    interview.status = "completed"
+    interview.ended_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+    db.refresh(interview)
+    return interview
+
+
+def quit_interview(db: Session, interview_id: int) -> Interview:
+    interview = get_interview(db, interview_id)
+    if interview.status != "active":
+        raise InterviewNotActiveError
+    interview.status = "terminated"
+    interview.termination_reason = "user_quit"
+    interview.ended_at = datetime.now(UTC).replace(tzinfo=None)
+    db.commit()
+    db.refresh(interview)
+    return interview

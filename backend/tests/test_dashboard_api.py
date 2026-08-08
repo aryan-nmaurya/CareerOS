@@ -76,3 +76,27 @@ def test_dashboard_reflects_roadmap_progress_and_updates_after_module_completion
     assert after["remaining_modules"] == 0
     assert after["completion_pct"] == 100.0
     assert after["next_module"] is None
+
+
+def test_dashboard_reflects_recent_interviews(client, fake_ai):
+    client.post("/api/profile", json={"name": "Aryan"})
+    track_id = client.post(
+        "/api/tracks", json={"topic": "Python", "experience_level": "intermediate"}
+    ).json()["id"]
+    fake_ai.queue_response(
+        {
+            "questions": [
+                {"question": f"Q{i}?", "expected_points": ["a", "b"]} for i in range(5)
+            ]
+        }
+    )
+    client.post(
+        f"/api/tracks/{track_id}/interviews",
+        json={"level": "intermediate", "question_count": 5},
+    )
+
+    body = client.get("/api/dashboard").json()
+
+    assert len(body["recent_interviews"]) == 1
+    assert body["recent_interviews"][0]["level"] == "intermediate"
+    assert body["recent_interviews"][0]["status"] == "active"

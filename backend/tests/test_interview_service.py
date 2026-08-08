@@ -119,3 +119,58 @@ def test_record_answer_unknown_question_raises(db_session, fake_ai):
 
     with pytest.raises(QuestionNotFoundError):
         interview_service.record_answer(db_session, interview.id, 999999, "answer", 10)
+
+
+def test_complete_interview_marks_completed_without_requiring_transcripts(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(5))
+    interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+
+    completed = interview_service.complete_interview(db_session, interview.id)
+
+    assert completed.status == "completed"
+    assert completed.ended_at is not None
+
+
+def test_complete_interview_on_non_active_raises(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(5))
+    interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+    interview_service.complete_interview(db_session, interview.id)
+
+    with pytest.raises(interview_service.InterviewNotActiveError):
+        interview_service.complete_interview(db_session, interview.id)
+
+
+def test_quit_interview_marks_terminated_with_reason(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(5))
+    interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+
+    quit = interview_service.quit_interview(db_session, interview.id)
+
+    assert quit.status == "terminated"
+    assert quit.termination_reason == "user_quit"
+    assert quit.ended_at is not None
+
+
+def test_quit_interview_on_non_active_raises(db_session, fake_ai):
+    track = _track(db_session)
+    fake_ai.queue_response(_generation_response(5))
+    interview = interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+    interview_service.quit_interview(db_session, interview.id)
+
+    with pytest.raises(interview_service.InterviewNotActiveError):
+        interview_service.quit_interview(db_session, interview.id)
+
+
+def test_list_interviews_orders_most_recent_first_and_respects_limit(db_session, fake_ai):
+    track = _track(db_session)
+    for _ in range(4):
+        fake_ai.queue_response(_generation_response(5))
+        interview_service.start_interview(db_session, fake_ai, track.id, "intermediate", 5)
+
+    listed = interview_service.list_interviews(db_session, track.id, limit=2)
+
+    assert len(listed) == 2
+    assert listed[0].id > listed[1].id
