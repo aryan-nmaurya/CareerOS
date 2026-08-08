@@ -195,3 +195,5 @@ export interface RoadmapMeta {
   weekly_goals: WeeklyGoal[];
   final_project: FinalProject | null;
 }
+
+export type MachinePhase = "briefing" | "speaking" | "answering" | "review";

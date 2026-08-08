@@ -1,4 +1,4 @@
-export type MachinePhase = "briefing" | "speaking" | "answering" | "review";
+import type { MachinePhase } from "@/types";
 
 export interface MachineState {
   phase: MachinePhase;
