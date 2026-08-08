@@ -15,6 +15,7 @@ function ActiveInterview({ interview }: { interview: Interview }) {
     <AppShell>
       <TopBar title={`${interview.level} interview`} />
       <QuestionStage
+        key={machine.currentQuestion?.id ?? "review"}
         interview={interview}
         phase={machine.phase}
         currentQuestion={machine.currentQuestion}

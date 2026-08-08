@@ -7,6 +7,7 @@ import { ProgressRing } from "@/components/roadmap/ProgressRing";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { useDashboard } from "@/hooks/useDashboard";
+import { cn } from "@/lib/cn";
 
 export default function DashboardPage() {
   const { data: dashboard, isPending } = useDashboard();
@@ -103,11 +104,27 @@ export default function DashboardPage() {
 
       <Card className="mt-4">
         <CardTitle>Recent interviews</CardTitle>
-        <CardDescription className="mt-1">
-          {dashboard.recent_interviews.length === 0
-            ? "No interviews yet."
-            : `${dashboard.recent_interviews.length} completed.`}
-        </CardDescription>
+        {dashboard.recent_interviews.length === 0 ? (
+          <CardDescription className="mt-1">No interviews yet.</CardDescription>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {dashboard.recent_interviews.map((interview) => (
+              <div key={interview.id} className="flex items-center justify-between text-sm">
+                <span className="capitalize text-text-primary">{interview.level} interview</span>
+                <span
+                  className={cn(
+                    "text-xs font-medium capitalize",
+                    interview.status === "completed" && "text-success",
+                    interview.status === "terminated" && "text-danger",
+                    interview.status === "active" && "text-accent",
+                  )}
+                >
+                  {interview.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </AppShell>
   );

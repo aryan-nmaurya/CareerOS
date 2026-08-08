@@ -755,9 +755,16 @@ def test_dashboard_reflects_recent_interviews(client, fake_ai):
         "/api/tracks", json={"topic": "Python", "experience_level": "intermediate"}
     ).json()["id"]
     fake_ai.queue_response(
-        {"questions": [{"question": "Q?", "expected_points": ["a", "b"]}]}
+        {
+            "questions": [
+                {"question": f"Q{i}?", "expected_points": ["a", "b"]} for i in range(5)
+            ]
+        }
     )
-    client.post(f"/api/tracks/{track_id}/interviews", json={"level": "intermediate", "question_count": 1})
+    client.post(
+        f"/api/tracks/{track_id}/interviews",
+        json={"level": "intermediate", "question_count": 5},
+    )
 
     body = client.get("/api/dashboard").json()
 
@@ -2468,7 +2475,7 @@ Start both servers (`uvicorn main:app --reload` on :8000, `npm run dev` on
 so this task is split into what's verifiable for free versus what needs a
 real, successful Gemini call.
 
-- [ ] **Step 1: Zero-quota verification — seed an interview directly**
+- [x] **Step 1: Zero-quota verification — seed an interview directly**
 
 Question generation itself is already proven by `FakeAIClient`-backed tests
 in Tasks 3 and 5 (13 + 11 tests). What those tests *cannot* touch is
@@ -2502,54 +2509,80 @@ print('interview_id:', interview.id)
 "
 ```
 
-Navigate to `/interview/{id}` from that output and confirm, in order:
-1. Briefing screen shows "2 questions, intermediate level" and states
-   whether TTS will read questions aloud.
-2. Clicking "Start" speaks the first question (audible, or at minimum
-   `tts.speaking` briefly true) and the UI moves to the answering view once
-   `onEnd` fires.
-3. Because this environment cannot grant microphone access (confirmed in
-   this plan's header), `useSpeechRecognition` should hit its `onerror`
-   path and the transcript panel should fall back to the plain textarea
-   with the "Speech recognition unavailable" message — confirm this
-   actually renders rather than getting stuck showing "Listening…" forever.
-4. Typing an answer and clicking "Next question" advances to question 2 and
-   speaks it.
-5. Answering the last question and clicking "Finish" moves to the review
-   screen and calls `/submit` — confirm via Network tab that it returns
-   `status: "completed"`.
-6. Separately, seed a second `active` interview and click "End interview"
-   partway through — confirm it navigates to the dashboard and the
-   interview's status is `terminated` with `termination_reason: "user_quit"`
-   (check via `GET /api/interviews/{id}` directly, since there's no history
-   page yet to see it in the UI — that's Plan 5).
+Navigate to `/interview/{id}` from that output and confirm, in order — all
+confirmed working, done 2026-08-08:
+1. [x] Briefing screen showed "2 questions, intermediate level" and stated
+   TTS would read questions aloud.
+2. [x] Clicking "Start" spoke the first question and the UI moved to the
+   answering view once `onEnd` fired.
+3. [x] `useSpeechRecognition` correctly hit its `onerror` path (no real mic
+   in this environment) and the transcript panel fell back to the plain
+   textarea with the "Speech recognition unavailable" message — did not get
+   stuck showing "Listening…".
+4. [x] Typing an answer and clicking "Next question" advanced to question 2
+   and spoke it.
+5. [x] Answering the last question and clicking "Finish" moved to the
+   review screen and called `/submit` — confirmed via `GET
+   /api/interviews/{id}` that `status: "completed"`, `ended_at` set, and
+   critically that **both questions had their own distinct transcript**
+   ("ANSWER ONE" / "ANSWER TWO") with real, different
+   `answer_duration_s` values (23s, 32s) — proving per-question state
+   doesn't bleed across questions.
+6. [x] Seeded a second `active` interview, clicked "End interview" partway
+   through — navigated to the dashboard, and `GET /api/interviews/{id}`
+   confirmed `status: "terminated"`, `termination_reason: "user_quit"`.
 
-- [ ] **Step 2: Setup page and dashboard, still zero-quota**
+**A real bug was found and fixed here, not anticipated by this plan:**
+step 5's distinct-transcript check initially failed — question 2's textarea
+loaded pre-filled with question 1's answer. `QuestionStage`'s `manualAnswer`
+is `useState` local to that component, but `QuestionStage` itself never
+unmounts across questions (only its props change as the machine advances),
+so the state persisted across questions instead of resetting. Fixed by
+keying `<QuestionStage>` on `machine.currentQuestion?.id` in
+`InterviewActivePage.tsx` — forces a fresh mount (and fresh `manualAnswer`)
+on every new question, the standard React fix for "reset local state when
+the thing it belongs to changes." Re-ran the full flow after the fix with
+two different answers and confirmed both landed on the correct questions.
 
-Navigate to `/interview` directly (not through a seeded interview) and
-confirm the level selector defaults to the active track's declared level,
-question count defaults to 8, and both are changeable. Don't click "Start
-interview" yet in this step — that's what actually calls Gemini.
+- [x] **Step 2: Setup page and dashboard, still zero-quota**
 
-Load `/` (dashboard) and confirm the interviews seeded in Step 1 appear
-under "Recent interviews" with their level and status.
+Navigated to `/interview` directly — level selector correctly defaulted to
+the active track's declared level ("Intermediate"), question count defaulted
+to 8, both changeable.
 
-- [ ] **Step 3: Real generation — best-effort, quota permitting**
+Loaded `/` (dashboard) — the interviews from Step 1 appeared under "Recent
+interviews". **A second real bug was found and fixed here:** the card's
+label was hardcoded from Plan 3 as `"${recent_interviews.length}
+completed."` regardless of actual status — with one `terminated` and one
+`completed` interview both showing as "completed," this was visibly wrong
+once real status data existed. Fixed by rendering each interview's actual
+`level` and `status` (color-coded: green completed, red terminated, accent
+active) instead of a single aggregate count. This was Plan 3 code, not Plan
+4 code, but the bug was only ever visible once Plan 4 gave the dashboard
+real interviews to show — fixing it now rather than leaving a known-wrong
+label in place.
 
-From `/interview`, pick a level and count, click "Start interview." If
-quota allows, this proves the entire chain for real: prompt → Gemini →
-persisted questions → briefing screen with real questions. If it 429s or
-400s, that's a `startInterview` mutation error surfaced via
-`InterviewSetupPage`'s error paragraph — confirm *that* renders sensibly
-rather than leaving the button stuck on "Generating questions…" forever,
-which is itself a real (and free) thing to verify even when the call
-itself fails.
+- [x] **Step 3: Real generation — confirmed working, not just best-effort**
 
-- [ ] **Step 4: Record results and clean up**
+From `/interview`, picked Intermediate / 5 questions, clicked "Start
+interview." **Quota was available this time** (unlike every attempt during
+Plan 3) — this proved the entire chain for real: prompt → Gemini →
+persisted questions → briefing screen. Confirmed via `GET
+/api/interviews/4` that all 5 questions were genuine, high-quality,
+distinct intermediate Python questions (list vs. tuple, the `with`
+statement/context managers, decorators, generators, deep vs. shallow copy),
+each with 4 substantive `expected_points` — real model output, not
+boilerplate. This also incidentally confirms the interview prompt's schema
+(fully-required, no nullable fields, per this plan's Task 2 note) is
+accepted by Gemini without any `400`.
 
-Update this task's checkbox history with what was actually confirmed
-working versus blocked by quota, the same honest accounting Plan 3's Task
-11 used. Reset the dev database (`rm backend/careeros.db`) and stop both
-servers once done.
+- [x] **Step 4: Record results and clean up**
+
+Results recorded above — everything in this task's scope is confirmed
+working, including the real-generation step this plan expected might stay
+blocked. Two real bugs found via this live pass (question-answer bleeding
+across questions; a stale hardcoded dashboard label) were fixed inline,
+re-verified live, and are included in this task's commit. Dev database reset
+(`rm backend/careeros.db`) and both servers stopped after verification.
 
 ---
