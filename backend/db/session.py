@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
 
+_connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+
 engine = create_engine(
     settings.DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args=_connect_args,
 )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -17,10 +19,14 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 @event.listens_for(Engine, "connect")
 def _set_sqlite_pragmas(dbapi_connection, connection_record) -> None:
     """SQLite ignores foreign key constraints unless explicitly told not to,
-    and WAL gives us non-blocking reads while a write is in flight.
+    and WAL gives us non-blocking reads while a write is in flight. Skipped
+    for non-SQLite connections (e.g. Postgres in production), which have no
+    concept of PRAGMA and would error on it.
 
     Registered against Engine (not our engine) so test engines get it too.
     """
+    if "sqlite3" not in type(dbapi_connection).__module__:
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.execute("PRAGMA journal_mode=WAL")
