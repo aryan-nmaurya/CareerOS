@@ -76,3 +76,18 @@ def test_patch_profile_updates_theme(client):
 
     assert response.status_code == 200
     assert response.json()["theme"] == "dark"
+
+
+def test_delete_profile_removes_it(client):
+    client.post("/api/profile", json={"name": "Aryan"})
+
+    response = client.delete("/api/profile")
+
+    assert response.status_code == 204
+    assert client.get("/api/profile").status_code == 204
+
+
+def test_delete_profile_when_none_exists_still_returns_204(client):
+    response = client.delete("/api/profile")
+
+    assert response.status_code == 204

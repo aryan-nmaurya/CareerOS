@@ -183,3 +183,89 @@ def test_get_track_unknown_raises(db_session):
 
     with pytest.raises(TrackNotFoundError):
         profile_service.get_track(db_session, 4242)
+
+
+from models.assessment import Assessment, AssessmentQuestion
+from models.interview import Interview, InterviewQuestion, ProctoringEvent
+
+
+def test_delete_profile_cascades_to_every_table(db_session):
+    user = _onboard(db_session)
+    track = profile_service.create_track(
+        db_session, TrackCreate(topic="Python", experience_level="beginner")
+    )
+
+    assessment = Assessment(track_id=track.id, level="intermediate", status="in_progress")
+    db_session.add(assessment)
+    db_session.commit()
+    db_session.add(
+        AssessmentQuestion(
+            assessment_id=assessment.id,
+            order_index=0,
+            type="mcq",
+            topic_tag="loops",
+            question="What does `range(3)` produce?",
+            options=["0,1,2", "1,2,3", "0,1,2,3", "1,2"],
+            correct_option=0,
+        )
+    )
+
+    interview = Interview(
+        track_id=track.id, level="intermediate", question_count=5, status="active"
+    )
+    db_session.add(interview)
+    db_session.commit()
+    db_session.add(
+        InterviewQuestion(
+            interview_id=interview.id,
+            order_index=0,
+            question="Explain the GIL.",
+            expected_points=["single lock"],
+        )
+    )
+    db_session.add(
+        ProctoringEvent(
+            interview_id=interview.id,
+            type="looking_away",
+            severity="warning",
+            detail="yaw 30deg",
+            warning_index=1,
+        )
+    )
+    db_session.commit()
+
+    # Captured as plain ints before deleting — after delete_profile,
+    # touching .id on these ORM objects would itself trigger a refresh
+    # (SQLAlchemy expires every tracked object's attributes on every
+    # commit by default) against rows that the database has already
+    # removed via cascade, raising rather than returning None.
+    user_id, track_id, assessment_id, interview_id = (
+        user.id,
+        track.id,
+        assessment.id,
+        interview.id,
+    )
+
+    profile_service.delete_profile(db_session)
+
+    # assessment/interview were removed by the database's own FK cascade,
+    # not by SQLAlchemy's ORM-level cascade (LearningTrack has no declared
+    # `relationship()` to either), so the session doesn't know to drop them
+    # from its identity map on its own. expunge_all() clears it, so the
+    # `.get()` calls below issue genuinely fresh queries instead of trying
+    # to reconcile stale in-memory objects against rows that are gone.
+    db_session.expunge_all()
+
+    assert db_session.get(User, user_id) is None
+    assert db_session.get(LearningTrack, track_id) is None
+    assert db_session.get(Assessment, assessment_id) is None
+    assert db_session.query(AssessmentQuestion).count() == 0
+    assert db_session.get(Interview, interview_id) is None
+    assert db_session.query(InterviewQuestion).count() == 0
+    assert db_session.query(ProctoringEvent).count() == 0
+
+
+def test_delete_profile_when_none_exists_is_a_noop(db_session):
+    profile_service.delete_profile(db_session)  # must not raise
+
+    assert profile_service.get_profile(db_session) is None

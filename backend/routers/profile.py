@@ -37,3 +37,8 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db)):
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "profile_not_found", "message": "No profile yet."},
         )
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def delete_profile(db: Session = Depends(get_db)):
+    profile_service.delete_profile(db)

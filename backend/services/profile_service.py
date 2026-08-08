@@ -106,3 +106,15 @@ def get_track(db: Session, track_id: int) -> LearningTrack:
     if track is None:
         raise TrackNotFoundError
     return track
+
+
+def delete_profile(db: Session) -> None:
+    """Deletes the single user row, if one exists. Every other table cascades
+    from it (ondelete="CASCADE" on every FK down the chain), so nothing else
+    needs deleting explicitly. A no-op when there's no profile yet — sign-out
+    must always succeed, including before onboarding ever finished."""
+    user = get_profile(db)
+    if user is None:
+        return
+    db.delete(user)
+    db.commit()
