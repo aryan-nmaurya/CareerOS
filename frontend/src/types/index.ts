@@ -123,6 +123,37 @@ export interface NextModule {
   phase_title: string;
 }
 
+export type InterviewLevel = "beginner" | "intermediate" | "advanced";
+export type InterviewStatus = "setup" | "active" | "completed" | "terminated";
+
+export interface InterviewQuestion {
+  id: number;
+  order_index: number;
+  question: string;
+  expected_points: string[];
+  transcript: string | null;
+  answer_duration_s: number | null;
+}
+
+export interface Interview {
+  id: number;
+  track_id: number;
+  level: InterviewLevel;
+  question_count: number;
+  status: InterviewStatus;
+  started_at: string;
+  ended_at: string | null;
+  termination_reason: string | null;
+  questions: InterviewQuestion[];
+}
+
+export interface RecentInterview {
+  id: number;
+  level: InterviewLevel;
+  status: InterviewStatus;
+  started_at: string;
+}
+
 export interface Dashboard {
   profile: Profile | null;
   active_track: Track | null;
@@ -132,7 +163,7 @@ export interface Dashboard {
   remaining_modules: number;
   completion_pct: number;
   next_module: NextModule | null;
-  recent_interviews: unknown[];
+  recent_interviews: RecentInterview[];
 }
 
 // Streamed phase/module data has no id yet — it isn't persisted-and-fetched
