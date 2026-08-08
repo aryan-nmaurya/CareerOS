@@ -19,7 +19,9 @@ function ActiveInterview({ interview }: { interview: Interview }) {
 
   return (
     <AppShell>
-      <TopBar title={`${interview.level} interview`} />
+      <TopBar
+        title={`${interview.level.charAt(0).toUpperCase()}${interview.level.slice(1)} Interview`}
+      />
       <QuestionStage
         key={machine.currentQuestion?.id ?? "review"}
         interview={interview}

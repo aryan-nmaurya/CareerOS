@@ -1,5 +1,4 @@
 import { Loader2, Mic, Video } from "lucide-react";
-import type { RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardTitle } from "@/components/ui/card";
@@ -8,7 +7,6 @@ import type { CameraStatus } from "@/hooks/useProctoring";
 import { cn } from "@/lib/cn";
 
 interface Props {
-  videoRef: RefObject<HTMLVideoElement | null>;
   cameraStatus: CameraStatus;
   faceCount: number;
   micStatus: MicStatus;
@@ -16,7 +14,7 @@ interface Props {
   onContinue: () => void;
 }
 
-export function PreflightCheck({ videoRef, cameraStatus, faceCount, micStatus, ready, onContinue }: Props) {
+export function PreflightCheck({ cameraStatus, faceCount, micStatus, ready, onContinue }: Props) {
   const cameraOk = cameraStatus === "ready" && faceCount === 1;
   const micOk = micStatus === "ready";
   return (
@@ -26,9 +24,6 @@ export function PreflightCheck({ videoRef, cameraStatus, faceCount, micStatus, r
         Allow camera and microphone access. We process the camera locally and use it only to verify
         that the interview has one visible candidate.
       </CardDescription>
-      <div className="overflow-hidden rounded-lg bg-surface-hover">
-        <video ref={videoRef} autoPlay muted playsInline className="aspect-video w-full -scale-x-100 object-cover" />
-      </div>
       <div className="space-y-2 text-sm">
         <div className="flex items-center gap-2">
           <Video className={cn("size-4", cameraOk ? "text-success" : "text-text-muted")} />

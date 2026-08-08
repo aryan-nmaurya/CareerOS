@@ -17,7 +17,7 @@ export default function InterviewReportPage() {
   if (isPending) return <AppShell><LoadingState label="Loading report…" /></AppShell>;
   if (error || !interview) return <AppShell><ErrorState message={error instanceof Error ? error.message : "This interview could not be found."} onRetry={() => void refetch()} /></AppShell>;
   return <AppShell>
-    <TopBar title="Interview report" subtitle={`${interview.level} interview · ${new Date(interview.started_at).toLocaleDateString()}`} />
+    <TopBar title="Interview Report" subtitle={`${interview.level.charAt(0).toUpperCase()}${interview.level.slice(1)} Interview · ${new Date(interview.started_at).toLocaleDateString()}`} />
     <div className="space-y-6">
       <Link to="/history" className="inline-flex items-center gap-2 text-sm text-accent"><ArrowLeft className="size-4" /> History</Link>
       {interview.status === "terminated" ? <Card><CardTitle>Interview terminated</CardTitle><CardDescription>This attempt was not scored because it ended before all answers were completed.</CardDescription></Card> : <>

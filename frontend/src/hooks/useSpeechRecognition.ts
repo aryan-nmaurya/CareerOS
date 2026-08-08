@@ -10,6 +10,8 @@ export function useSpeechRecognition() {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(getSpeechRecognitionCtor() !== null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const shouldListenRef = useRef(false);
+  const listeningRef = useRef(false);
 
   const start = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor();
@@ -17,8 +19,11 @@ export function useSpeechRecognition() {
       setSupported(false);
       return;
     }
+    if (listeningRef.current) return;
+
     setTranscript("");
     const recognition = new Ctor();
+    shouldListenRef.current = true;
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
@@ -28,23 +33,50 @@ export function useSpeechRecognition() {
       }
       setTranscript(combined);
     };
-    // A real user declining microphone permission surfaces here as
-    // error: "not-allowed" — live-verified in this plan's header. Any
-    // error means recognition cannot be trusted for the rest of this
-    // session, not just this question, so it downgrades `supported`
-    // rather than only stopping this one attempt.
-    recognition.onerror = () => {
-      setSupported(false);
+    recognition.onerror = (event) => {
+      // `no-speech` and `aborted` are normal browser events. Only permission
+      // and service errors mean this browser cannot provide speech input.
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        shouldListenRef.current = false;
+        setSupported(false);
+      }
       setListening(false);
+      listeningRef.current = false;
     };
-    recognition.onend = () => setListening(false);
+    recognition.onstart = () => {
+      setListening(true);
+      listeningRef.current = true;
+    };
+    recognition.onend = () => {
+      setListening(false);
+      listeningRef.current = false;
+      if (recognitionRef.current === recognition) recognitionRef.current = null;
+      // Chrome can end a continuous recognition session after a pause. Keep
+      // listening while the answer phase is active instead of losing the mic.
+      if (shouldListenRef.current) {
+        window.setTimeout(() => {
+          if (shouldListenRef.current) start();
+        }, 250);
+      }
+    };
     recognitionRef.current = recognition;
-    recognition.start();
-    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      listeningRef.current = false;
+      setListening(false);
+    }
   }, []);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    shouldListenRef.current = false;
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // The browser may already have ended the recognition session.
+    }
+    recognitionRef.current = null;
+    listeningRef.current = false;
     setListening(false);
   }, []);
 

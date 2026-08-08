@@ -112,7 +112,8 @@ _SYSTEM = (
 
 def build_roadmap_prompt(
     topic: str, level: str, assessment: _HasStrengthsWeaknesses | None = None
-) -> Prompt:
+) -> Prompt:    
+    # Beginner
     if level == "beginner":
         guidance = (
             "Assume zero prior knowledge. Start from absolute fundamentals and "
@@ -123,6 +124,7 @@ def build_roadmap_prompt(
         weaknesses = (
             ", ".join(assessment.weaknesses) if assessment and assessment.weaknesses else "none identified"
         )
+        # Advanced
         if level == "advanced":
             guidance = (
                 "This is a revision roadmap — skip fundamentals entirely. The "
@@ -131,6 +133,7 @@ def build_roadmap_prompt(
                 "weaknesses, include advanced projects, and end with "
                 "interview-focused revision for this topic."
             )
+            # Intermediate
         else:
             guidance = (
                 "Build the roadmap from the learner's actual assessed level, not "

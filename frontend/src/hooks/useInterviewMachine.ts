@@ -13,9 +13,9 @@ export function useInterviewMachine(interview: Interview) {
   const [state, dispatch] = useReducer(transition, initialMachineState());
   const tts = useSpeechSynthesis();
   const stt = useSpeechRecognition();
-  const saveAnswer = useSaveInterviewAnswer(interview.id);
-  const submit = useSubmitInterview(interview.id);
-  const quit = useQuitInterview(interview.id);
+  const saveAnswerMutation = useSaveInterviewAnswer(interview.id);
+  const submitMutation = useSubmitInterview(interview.id);
+  const quitMutation = useQuitInterview(interview.id);
   const warnings = useWarnings(interview.id);
   const answerStart = useRef<number | null>(null);
   const currentQuestion = interview.questions[state.questionIndex] ?? null;
@@ -26,28 +26,39 @@ export function useInterviewMachine(interview: Interview) {
   const audio = useAudioMonitor(captureActive, warningsArmed, state.phase === "answering", stt.supported, stt.transcript, warnings.reportEvent);
   const preflightPassed = proctoring.cameraStatus === "ready" && proctoring.faceCount === 1 && audio.micStatus === "ready";
 
-  const preflightReady = useCallback(() => dispatch({ type: "PREFLIGHT_READY" }), []);
-  const begin = useCallback(() => dispatch({ type: "BEGIN" }), []);
+  const preflightReady = useCallback(() => {
+    audio.resume();
+    dispatch({ type: "PREFLIGHT_READY" });
+  }, [audio.resume]);
+  const begin = useCallback(() => {
+    audio.resume();
+    dispatch({ type: "BEGIN" });
+  }, [audio.resume]);
+  const { start: startSpeech, stop: stopSpeech } = stt;
+  const { speak: speakQuestion, cancel: cancelSpeech } = tts;
+  const saveAnswer = saveAnswerMutation.mutate;
+  const submitInterview = submitMutation.mutate;
+  const quitInterview = quitMutation.mutate;
 
   useEffect(() => {
     if (state.phase !== "speaking" || !currentQuestion) return;
     if (!tts.supported) return void dispatch({ type: "TTS_DONE" });
-    tts.speak(currentQuestion.question, () => dispatch({ type: "TTS_DONE" }));
-    return () => tts.cancel();
-  }, [state.phase, state.questionIndex, currentQuestion, tts]);
+    speakQuestion(currentQuestion.question, () => dispatch({ type: "TTS_DONE" }));
+    return () => cancelSpeech();
+  }, [state.phase, state.questionIndex, currentQuestion, tts.supported, speakQuestion, cancelSpeech]);
 
   useEffect(() => {
     if (state.phase !== "answering") return;
     answerStart.current = Date.now();
     if (!stt.supported) return;
-    stt.start();
-    return () => stt.stop();
-  }, [state.phase, state.questionIndex, stt]);
+    startSpeech();
+    return () => stopSpeech();
+  }, [state.phase, state.questionIndex, stt.supported, startSpeech, stopSpeech]);
 
   useEffect(() => {
     if (state.phase !== "evaluating") return;
-    submit.mutate(undefined, { onSuccess: () => dispatch({ type: "REPORT_READY" }) });
-  }, [state.phase, submit]);
+    submitInterview(undefined, { onSuccess: () => dispatch({ type: "REPORT_READY" }) });
+  }, [state.phase, submitInterview]);
 
   useEffect(() => {
     if (warnings.terminated) dispatch({ type: "TERMINATE", reason: "proctoring" });
@@ -55,19 +66,19 @@ export function useInterviewMachine(interview: Interview) {
 
   const advance = useCallback((manualTranscript?: string) => {
     if (!currentQuestion) return;
-    stt.stop();
+    stopSpeech();
     const durationS = answerStart.current ? Math.round((Date.now() - answerStart.current) / 1000) : 0;
     const transcript = stt.supported ? stt.transcript : manualTranscript ?? "";
-    saveAnswer.mutate({ questionId: currentQuestion.id, transcript, durationS });
+    saveAnswer({ questionId: currentQuestion.id, transcript, durationS });
     dispatch({ type: "ANSWER_ADVANCE", isLastQuestion });
-  }, [currentQuestion, isLastQuestion, saveAnswer, stt]);
+  }, [currentQuestion, isLastQuestion, saveAnswer, stopSpeech, stt.supported, stt.transcript]);
 
   const quitNow = useCallback(() => {
-    tts.cancel();
-    stt.stop();
+    cancelSpeech();
+    stopSpeech();
     dispatch({ type: "TERMINATE", reason: "user_quit" });
-    quit.mutate();
-  }, [quit, stt, tts]);
+    quitInterview();
+  }, [cancelSpeech, quitInterview, stopSpeech]);
 
   return {
     phase: state.phase,
@@ -90,6 +101,6 @@ export function useInterviewMachine(interview: Interview) {
     cameraStatus: proctoring.cameraStatus,
     faceCount: proctoring.faceCount,
     micStatus: audio.micStatus,
-    evaluationError: submit.error,
+    evaluationError: submitMutation.error,
   };
 }

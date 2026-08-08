@@ -1,7 +1,7 @@
 import { ArrowRight, LogOut } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { ReactNode, Ref } from "react";
 
 import { CameraPip } from "@/components/interview/CameraPip";
 import { PreflightCheck } from "@/components/interview/PreflightCheck";
@@ -28,7 +28,7 @@ interface Props {
   onQuit: () => void;
   onPreflightReady: () => void;
   terminationReason: TerminationReason | null;
-  videoRef: RefObject<HTMLVideoElement | null>;
+  videoRef: Ref<HTMLVideoElement>;
   cameraStatus: CameraStatus;
   faceCount: number;
   micStatus: MicStatus;
@@ -43,12 +43,19 @@ export function QuestionStage({
   videoRef, cameraStatus, faceCount, micStatus, preflightPassed, warningCount, recentEventType,
 }: Props) {
   const [manualAnswer, setManualAnswer] = useState("");
+  // Mount the PiP before speaking starts so the async camera setup can attach
+  // the stream to a live video element while the interview is in briefing.
+  const showCameraPip = !["evaluating", "report", "terminated"].includes(phase);
   let content: ReactNode;
-  if (phase === "preflight") content = <PreflightCheck videoRef={videoRef} cameraStatus={cameraStatus} faceCount={faceCount} micStatus={micStatus} ready={preflightPassed} onContinue={onPreflightReady} />;
+  if (phase === "preflight") content = <PreflightCheck cameraStatus={cameraStatus} faceCount={faceCount} micStatus={micStatus} ready={preflightPassed} onContinue={onPreflightReady} />;
   else if (phase === "terminated") content = <Card className="space-y-4"><CardTitle>{terminationReason === "proctoring" ? "Interview terminated" : "Interview ended"}</CardTitle><CardDescription>{terminationReason === "proctoring" ? (recentEventType === "multiple_faces" ? "Multiple faces were detected, so the interview ended immediately." : `The interview ended after ${warningCount} proctoring warning${warningCount === 1 ? "" : "s"}.`) : "You ended this interview early."}</CardDescription></Card>;
   else if (phase === "evaluating") content = <Card className="space-y-3"><CardTitle>Evaluating your interview…</CardTitle><CardDescription>Gemini is reviewing all answers together and preparing feedback.</CardDescription></Card>;
   else if (phase === "report") content = <Card className="space-y-3"><CardTitle>Interview evaluated</CardTitle><CardDescription>Your report is ready.</CardDescription></Card>;
   else if (phase === "briefing") content = <Card className="space-y-4"><CardTitle>Ready when you are</CardTitle><CardDescription>{totalQuestions} questions, {interview.level} level. {ttsSupported ? "Each question will be read aloud." : "Questions will be shown as text."}</CardDescription><Button onClick={onBegin}>Start <ArrowRight className="size-4" /></Button></Card>;
-  else content = <div className="space-y-4"><CameraPip videoRef={videoRef} cameraStatus={cameraStatus} faceCount={faceCount} /><WarningOverlay warningCount={warningCount} recentEventType={recentEventType} /><div className="flex items-center justify-between"><p className="text-xs font-medium text-text-muted">Question {questionNumber} of {totalQuestions}</p><Button variant="ghost" size="sm" onClick={onQuit}><LogOut className="size-4" /> End interview</Button></div><Card><CardTitle>{currentQuestion?.question}</CardTitle></Card>{phase === "answering" && <><TranscriptPanel sttSupported={sttSupported} listening={listening} liveTranscript={liveTranscript} manualValue={manualAnswer} onManualChange={setManualAnswer} /><Button onClick={() => onAdvance(manualAnswer)}>{questionNumber === totalQuestions ? "Finish" : "Next question"} <ArrowRight className="size-4" /></Button></>}</div>;
-  return <AnimatePresence mode="wait" initial={false}><motion.div key={phase} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>{content}</motion.div></AnimatePresence>;
+  else content = <div className="space-y-4"><div className="flex items-center justify-between"><p className="text-xs font-medium text-text-muted">Question {questionNumber} of {totalQuestions}</p><Button variant="ghost" size="sm" onClick={onQuit}><LogOut className="size-4" /> End interview</Button></div><Card><CardTitle>{currentQuestion?.question}</CardTitle></Card>{phase === "answering" && <><TranscriptPanel sttSupported={sttSupported} listening={listening} liveTranscript={liveTranscript} manualValue={manualAnswer} onManualChange={setManualAnswer} /><Button onClick={() => onAdvance(manualAnswer)}>{questionNumber === totalQuestions ? "Finish" : "Next question"} <ArrowRight className="size-4" /></Button></>}</div>;
+  return <>
+    {showCameraPip && <CameraPip videoRef={videoRef} cameraStatus={cameraStatus} faceCount={faceCount} preflight={phase === "preflight"} />}
+    {!['preflight', 'evaluating', 'report', 'terminated'].includes(phase) && <WarningOverlay warningCount={warningCount} recentEventType={recentEventType} />}
+    <AnimatePresence mode="wait" initial={false}><motion.div key={phase} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>{content}</motion.div></AnimatePresence>
+  </>;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   initialSustainState,
@@ -28,8 +28,21 @@ export function useProctoring(
   const streamRef = useRef<MediaStream | null>(null);
   const landmarkerRef = useRef<FaceLandmarkerLike | null>(null);
   const warningRef = useRef(onWarning);
+  const armedRef = useRef(armed);
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>("pending");
   const [faceCount, setFaceCount] = useState(0);
+
+  useEffect(() => {
+    armedRef.current = armed;
+  }, [armed]);
+
+  const attachVideo = useCallback((video: HTMLVideoElement | null) => {
+    videoRef.current = video;
+    if (video && streamRef.current) {
+      video.srcObject = streamRef.current;
+      void video.play().catch(() => undefined);
+    }
+  }, []);
 
   useEffect(() => {
     warningRef.current = onWarning;
@@ -104,25 +117,35 @@ export function useProctoring(
 
     const tick = (now: number) => {
       if (cancelled) return;
-      if (now - lastFrameAt >= 100 && landmarkerRef.current && videoRef.current) {
+      if (
+        now - lastFrameAt >= 100 &&
+        landmarkerRef.current &&
+        videoRef.current &&
+        videoRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
         lastFrameAt = now;
-        const result = landmarkerRef.current.detectForVideo(videoRef.current, now);
-        const count = result.faceLandmarks?.length ?? 0;
-        setFaceCount(count);
-        const away = result.facialTransformationMatrixes?.[0]?.data
-          ? isLookingAway(matrixToEuler(result.facialTransformationMatrixes[0].data))
-          : false;
-        const awayResult = trackSustain(awayState, away, now, 2500, 10000);
-        awayState = awayResult.state;
-        if (armed && awayResult.fired) warningRef.current("looking_away", "Head pose exceeded the allowed threshold.");
+        try {
+          const result = landmarkerRef.current.detectForVideo(videoRef.current, now);
+          const count = result.faceLandmarks?.length ?? 0;
+          setFaceCount(count);
+          const away = result.facialTransformationMatrixes?.[0]?.data
+            ? isLookingAway(matrixToEuler(result.facialTransformationMatrixes[0].data))
+            : false;
+          const awayResult = trackSustain(awayState, away, now, 2500, 10000);
+          awayState = awayResult.state;
+          if (armedRef.current && awayResult.fired) warningRef.current("looking_away", "Head pose exceeded the allowed threshold.");
 
-        const noFaceResult = trackSustain(noFaceState, count === 0, now, 4000, 10000);
-        noFaceState = noFaceResult.state;
-        if (armed && noFaceResult.fired) warningRef.current("no_face", "No face was visible for four seconds.");
+          const noFaceResult = trackSustain(noFaceState, count === 0, now, 4000, 10000);
+          noFaceState = noFaceResult.state;
+          if (armedRef.current && noFaceResult.fired) warningRef.current("no_face", "No face was visible for four seconds.");
 
-        const multipleResult = trackSustain(multipleFaceState, count >= 2, now, 1500, 0);
-        multipleFaceState = multipleResult.state;
-        if (armed && multipleResult.fired) warningRef.current("multiple_faces", `${count} faces detected.`);
+          const multipleResult = trackSustain(multipleFaceState, count >= 2, now, 1500, 0);
+          multipleFaceState = multipleResult.state;
+          if (armedRef.current && multipleResult.fired) warningRef.current("multiple_faces", `${count} faces detected.`);
+        } catch {
+          // MediaPipe can reject a frame while a video element is being
+          // replaced. Keep the RAF loop alive and retry the next frame.
+        }
       }
       animationFrame = requestAnimationFrame(tick);
     };
@@ -137,7 +160,7 @@ export function useProctoring(
       landmarkerRef.current?.close?.();
       landmarkerRef.current = null;
     };
-  }, [active, armed]);
+  }, [active]);
 
-  return { videoRef, cameraStatus, faceCount };
+  return { videoRef: attachVideo, cameraStatus, faceCount };
 }
