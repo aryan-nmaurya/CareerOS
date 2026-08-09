@@ -26,3 +26,5 @@ dist/
 # Claude Code session-local state (launch.json is intentionally tracked)
 .claude/scheduled_tasks.lock
 .claude/settings.local.json
+/.claude/
+/docs/
